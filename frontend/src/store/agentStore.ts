@@ -11,12 +11,24 @@ export interface Message {
   streaming: boolean;
 }
 
+export type MemoryStatus = "idle" | "processing" | "stored" | "error";
+
+export interface RecentMemory {
+  record_id: string;
+  session_id: string;
+  role: string;
+  preview: string;
+  created_at: string;
+}
+
 interface AgentStore {
   messages: Message[];
   isStreaming: boolean;
   selectedAgent: string;
   connectionStatus: "disconnected" | "connecting" | "connected" | "error";
   contextNotes: string[];
+  memoryStatus: MemoryStatus;
+  recentMemories: RecentMemory[];
 
   addMessage: (role: MessageRole, content: string) => string;
   appendToLastAgentMessage: (chunk: string) => void;
@@ -26,6 +38,8 @@ interface AgentStore {
   setSelectedAgent: (name: string) => void;
   clearMessages: () => void;
   addContextNote: (note: string) => void;
+  setMemoryStatus: (s: MemoryStatus) => void;
+  addRecentMemory: (m: RecentMemory) => void;
 }
 
 export const useAgentStore = create<AgentStore>((set) => ({
@@ -34,6 +48,8 @@ export const useAgentStore = create<AgentStore>((set) => ({
   selectedAgent: "claude-0",
   connectionStatus: "disconnected",
   contextNotes: [],
+  memoryStatus: "idle",
+  recentMemories: [],
 
   addMessage: (role, content) => {
     const id = generateId();
@@ -72,4 +88,10 @@ export const useAgentStore = create<AgentStore>((set) => ({
   clearMessages: () => set({ messages: [], contextNotes: [] }),
   addContextNote: (note) =>
     set((state) => ({ contextNotes: [...state.contextNotes, note] })),
+  setMemoryStatus: (s) => set({ memoryStatus: s }),
+  addRecentMemory: (m) =>
+    set((state) => ({
+      memoryStatus: "stored",
+      recentMemories: [m, ...state.recentMemories].slice(0, 10),
+    })),
 }));

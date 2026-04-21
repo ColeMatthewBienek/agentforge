@@ -33,6 +33,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     args: "<note>",
     clientOnly: true,
   },
+  {
+    name: "remember",
+    description: "Pin a fact to memory — always surfaces in future context",
+    args: "<text>",
+    clientOnly: false,
+  },
 ];
 
 /** Parse raw input like "/cwd /home/user/project" → { name, args } */

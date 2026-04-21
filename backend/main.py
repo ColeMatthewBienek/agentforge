@@ -5,6 +5,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api import agents, ws
+from backend.api import memory as memory_router
+from backend.api.broadcast import broadcaster
+from backend.config import LANCEDB_DIR
+from backend.memory.embedder import Embedder
+from backend.memory.lance_store import LanceStore
+from backend.memory.shadow_agent import ShadowAgent
+from backend.memory.memory_manager import MemoryManager
+from backend.memory.curator import MemoryCurator
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -13,8 +21,38 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("AgentForge backend starting up")
+
+    # 1. LanceDB store
+    embedder = Embedder()
+    store = LanceStore(db_path=LANCEDB_DIR / "memories", embedder=embedder)
+    await store.initialize()
+
+    # 2. Embedder health check
+    if not await embedder.health_check():
+        logger.error(
+            "Ollama is not running or nomic-embed-text is not pulled. "
+            "Run: ollama pull nomic-embed-text && ollama serve  "
+            "Memory system will be disabled until Ollama is available."
+        )
+
+    # 3. Shadow agent
+    shadow_agent = ShadowAgent(store=store, embedder=embedder, broadcaster=broadcaster)
+    await shadow_agent.start()
+
+    # 4. Memory manager — inject into app state and ws module
+    memory_manager = MemoryManager(store=store, shadow_agent=shadow_agent)
+    app.state.memory_manager = memory_manager
+    ws._memory_manager = memory_manager
+
+    # 5. Curator stub
+    curator = MemoryCurator(store=store, broadcaster=broadcaster)
+    app.state.curator = curator
+
     yield
+
     logger.info("AgentForge backend shutting down")
+    await shadow_agent.shutdown()
+    await embedder.shutdown()
     if ws._agent is not None:
         await ws._agent.kill()
 
@@ -31,6 +69,7 @@ app.add_middleware(
 
 app.include_router(ws.router)
 app.include_router(agents.router)
+app.include_router(memory_router.router)
 
 
 @app.post("/api/shutdown")

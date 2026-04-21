@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useAgentStore } from "@/store/agentStore";
 import { stripAnsi, generateId } from "@/lib/utils";
+import type { RecentMemory } from "@/store/agentStore";
 
 const WS_URL = "ws://localhost:8765";
 
@@ -15,6 +16,8 @@ export function useAgentStream() {
     finalizeLastAgentMessage,
     setStreaming,
     setConnectionStatus,
+    setMemoryStatus,
+    addRecentMemory,
   } = useAgentStore();
 
   const connect = useCallback(() => {
@@ -35,11 +38,15 @@ export function useAgentStream() {
         message?: string;
         agent?: string;
         status?: string;
+        record_id?: string;
+        session_id?: string;
+        role?: string;
+        preview?: string;
+        created_at?: string;
       };
 
       switch (data.type) {
         case "status":
-          // Initial handshake confirming agent is ready
           break;
 
         case "chunk":
@@ -52,11 +59,24 @@ export function useAgentStream() {
           break;
 
         case "error": {
-          // Replace the empty thinking bubble with the error text
           const errText = `[Error] ${data.message ?? "Unknown error"}`;
           appendToLastAgentMessage(errText);
           finalizeLastAgentMessage();
           setStreaming(false);
+          break;
+        }
+
+        case "MEMORY_STORED": {
+          setMemoryStatus("processing");
+          addRecentMemory({
+            record_id: data.record_id ?? "",
+            session_id: data.session_id ?? "",
+            role: data.role ?? "",
+            preview: data.preview ?? "",
+            created_at: data.created_at ?? "",
+          });
+          // Reset to idle after brief "stored" flash
+          setTimeout(() => setMemoryStatus("idle"), 800);
           break;
         }
       }
@@ -73,7 +93,7 @@ export function useAgentStream() {
       setConnectionStatus("error");
       ws.close();
     };
-  }, [addMessage, appendToLastAgentMessage, finalizeLastAgentMessage, setStreaming, setConnectionStatus]);
+  }, [addMessage, appendToLastAgentMessage, finalizeLastAgentMessage, setStreaming, setConnectionStatus, setMemoryStatus, addRecentMemory]);
 
   useEffect(() => {
     connect();

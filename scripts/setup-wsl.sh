@@ -50,6 +50,22 @@ else
   echo "    Installed via system pip"
 fi
 
+# ── Ollama + embedding model ───────────────────────────────────────────────────
+echo ""
+echo "==> Checking Ollama + nomic-embed-text..."
+
+if command -v ollama &>/dev/null; then
+  echo "    ✓ ollama found at $(command -v ollama)"
+  ollama pull nomic-embed-text
+  curl -s http://localhost:11434/api/tags | grep -q nomic-embed-text \
+    && echo "    ✓ nomic-embed-text available" \
+    || echo "    WARNING: nomic-embed-text not found — run: ollama pull nomic-embed-text"
+else
+  echo "    ✗ ollama not found. Install from https://ollama.com and run:"
+  echo "      ollama pull nomic-embed-text"
+  echo "      ollama serve"
+fi
+
 # ── CLI checks ─────────────────────────────────────────────────────────────────
 echo ""
 echo "==> Checking required CLIs..."

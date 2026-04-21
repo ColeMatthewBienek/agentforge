@@ -3,18 +3,21 @@ import json
 import logging
 from pathlib import Path
 
-
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from backend.agents.claude_agent import ClaudeAgent
+from backend.api.broadcast import broadcaster
 from backend.config import SHARED_WORKSPACE
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Phase 1: single global agent, started on first connection
+# Phase 1: single global agent
 _agent: ClaudeAgent | None = None
 _agent_lock = asyncio.Lock()
+
+# Set by main.py lifespan after memory system initializes
+_memory_manager = None
 
 
 async def get_or_start_agent() -> ClaudeAgent:
@@ -33,6 +36,7 @@ async def get_or_start_agent() -> ClaudeAgent:
 @router.websocket("/ws/stream/{session_id}")
 async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
     await websocket.accept()
+    await broadcaster.connect(websocket)
     logger.info("WebSocket connected: session=%s", session_id)
 
     try:
@@ -41,6 +45,7 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
     except Exception as exc:
         logger.exception("Failed to start agent")
         await websocket.send_json({"type": "error", "message": f"Agent failed to start: {exc}"})
+        await broadcaster.disconnect(websocket)
         await websocket.close()
         return
 
@@ -58,6 +63,7 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
             if msg_type == "command":
                 name = str(msg.get("name", "")).strip()
                 args = str(msg.get("args", "")).strip()
+
                 if name == "set_workdir":
                     path = Path(args).expanduser()
                     if not path.is_dir():
@@ -67,19 +73,32 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
                         })
                     else:
                         agent.workdir = path
-                        await websocket.send_json({
-                            "type": "chunk",
-                            "content": f"Working directory set to: {path}",
-                        })
+                        await websocket.send_json({"type": "chunk", "content": f"Working directory set to: {path}"})
                         await websocket.send_json({"type": "done"})
+
+                elif name == "remember":
+                    if _memory_manager:
+                        await _memory_manager.remember(content=args, session_id=session_id)
+                    await websocket.send_json({"type": "chunk", "content": "Remembered."})
+                    await websocket.send_json({"type": "done"})
+
                 continue
 
             if msg_type != "prompt":
                 continue
 
-            prompt = str(msg.get("content", "")).strip()
-            if not prompt:
+            raw_prompt = str(msg.get("content", "")).strip()
+            if not raw_prompt:
                 continue
+
+            # Integration point 1: enrich prompt with memory context before sending
+            prompt = raw_prompt
+            if _memory_manager:
+                prompt = await _memory_manager.build_context(raw_prompt, session_id=session_id)
+
+            # Integration point 2: store user message
+            if _memory_manager:
+                await _memory_manager.on_message(role="user", content=raw_prompt, session_id=session_id)
 
             try:
                 await agent.send(prompt)
@@ -87,10 +106,12 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
                 await websocket.send_json({"type": "error", "message": str(exc)})
                 continue
 
+            full_response: list[str] = []
             sent_any = False
             try:
                 async for chunk in agent.stream_output(idle_timeout=120.0):
                     await websocket.send_json({"type": "chunk", "content": chunk})
+                    full_response.append(chunk)
                     sent_any = True
             except Exception as exc:
                 logger.error("Error during stream: %s", exc)
@@ -106,6 +127,14 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
 
             await websocket.send_json({"type": "done"})
 
+            # Integration point 2: store assistant response
+            if _memory_manager and full_response:
+                await _memory_manager.on_message(
+                    role="assistant",
+                    content="".join(full_response),
+                    session_id=session_id,
+                )
+
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected: session=%s", session_id)
     except Exception as exc:
@@ -114,3 +143,5 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
             await websocket.send_json({"type": "error", "message": str(exc)})
         except Exception:
             pass
+    finally:
+        await broadcaster.disconnect(websocket)
