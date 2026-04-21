@@ -50,11 +50,10 @@ class LanceStore:
     def _sync_initialize(self) -> None:
         self._db_path.mkdir(parents=True, exist_ok=True)
         self._db = lancedb.connect(str(self._db_path))
-        existing = self._db.list_tables()
-        if "memories" not in existing:
-            self._table = self._db.create_table("memories", schema=MEMORY_SCHEMA)
-        else:
+        try:
             self._table = self._db.open_table("memories")
+        except Exception:
+            self._table = self._db.create_table("memories", schema=MEMORY_SCHEMA)
 
     async def write(self, record: MemoryRecord) -> None:
         loop = asyncio.get_event_loop()
