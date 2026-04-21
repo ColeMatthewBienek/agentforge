@@ -1,20 +1,13 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
-from backend.api.ws import _agent
+from backend.pool.agent_pool import SlotStatus
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
 
-@router.get("")
-async def list_agents():
-    if _agent is None:
-        return {"agents": []}
-    return {
-        "agents": [
-            {
-                "slot_id": _agent.slot_id,
-                "name": _agent.name,
-                "status": _agent.status,
-            }
-        ]
-    }
+@router.get("", response_model=list[SlotStatus])
+async def list_agents(request: Request) -> list[SlotStatus]:
+    pool = getattr(request.app.state, "agent_pool", None)
+    if pool is None:
+        return []
+    return pool.status()

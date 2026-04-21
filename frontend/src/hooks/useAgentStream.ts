@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useAgentStore } from "@/store/agentStore";
 import { stripAnsi, generateId } from "@/lib/utils";
-import type { RecentMemory } from "@/store/agentStore";
+import type { RecentMemory, PoolSlot } from "@/store/agentStore";
 
 const WS_URL = "ws://localhost:8765";
 
@@ -19,6 +19,7 @@ export function useAgentStream() {
     setMemoryStatus,
     addRecentMemory,
     setCurrentSessionId,
+    setPoolSlots,
   } = useAgentStore();
 
   const connect = useCallback(() => {
@@ -54,6 +55,8 @@ export function useAgentStream() {
           pinned: boolean;
           source: string;
         }>;
+        slots?: PoolSlot[];
+        idle_timeout_seconds?: number;
       };
 
       switch (data.type) {
@@ -80,6 +83,11 @@ export function useAgentStream() {
         case "recall_results": {
           const payload = JSON.stringify({ query: data.query, results: data.results ?? [] });
           useAgentStore.getState().addMessage("recall", payload);
+          break;
+        }
+
+        case "AGENT_POOL_UPDATE": {
+          setPoolSlots(data.slots ?? [], data.idle_timeout_seconds);
           break;
         }
 
@@ -110,7 +118,7 @@ export function useAgentStream() {
       setConnectionStatus("error");
       ws.close();
     };
-  }, [addMessage, appendToLastAgentMessage, finalizeLastAgentMessage, setStreaming, setConnectionStatus, setMemoryStatus, addRecentMemory, setCurrentSessionId]);
+  }, [addMessage, appendToLastAgentMessage, finalizeLastAgentMessage, setStreaming, setConnectionStatus, setMemoryStatus, addRecentMemory, setCurrentSessionId, setPoolSlots]);
 
   useEffect(() => {
     connect();

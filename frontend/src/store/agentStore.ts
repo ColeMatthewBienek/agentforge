@@ -21,6 +21,15 @@ export interface RecentMemory {
   created_at: string;
 }
 
+export interface PoolSlot {
+  slot_id: string;
+  status: "starting" | "idle" | "busy" | "stopping" | "error";
+  current_task_id: string | null;
+  current_task_title: string | null;
+  uptime_seconds: number;
+  idle_since: string | null;
+}
+
 interface AgentStore {
   messages: Message[];
   isStreaming: boolean;
@@ -30,6 +39,8 @@ interface AgentStore {
   memoryStatus: MemoryStatus;
   recentMemories: RecentMemory[];
   currentSessionId: string;
+  poolSlots: PoolSlot[];
+  poolIdleTimeout: number;
 
   addMessage: (role: MessageRole, content: string) => string;
   appendToLastAgentMessage: (chunk: string) => void;
@@ -42,6 +53,7 @@ interface AgentStore {
   setMemoryStatus: (s: MemoryStatus) => void;
   addRecentMemory: (m: RecentMemory) => void;
   setCurrentSessionId: (id: string) => void;
+  setPoolSlots: (slots: PoolSlot[], idleTimeout?: number) => void;
 }
 
 export const useAgentStore = create<AgentStore>((set) => ({
@@ -53,6 +65,8 @@ export const useAgentStore = create<AgentStore>((set) => ({
   memoryStatus: "idle",
   recentMemories: [],
   currentSessionId: "",
+  poolSlots: [],
+  poolIdleTimeout: 300,
 
   addMessage: (role, content) => {
     const id = generateId();
@@ -98,4 +112,9 @@ export const useAgentStore = create<AgentStore>((set) => ({
       recentMemories: [m, ...state.recentMemories].slice(0, 10),
     })),
   setCurrentSessionId: (id) => set({ currentSessionId: id }),
+  setPoolSlots: (slots, idleTimeout) =>
+    set((state) => ({
+      poolSlots: slots,
+      poolIdleTimeout: idleTimeout ?? state.poolIdleTimeout,
+    })),
 }));

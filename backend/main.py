@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -7,12 +8,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.api import agents, ws
 from backend.api import memory as memory_router
 from backend.api.broadcast import broadcaster
-from backend.config import LANCEDB_DIR
+from backend.config import (
+    LANCEDB_DIR,
+    SHARED_WORKSPACE,
+    AGENT_IDLE_TIMEOUT_SECONDS,
+    HEALTH_CHECK_INTERVAL_SECONDS,
+)
 from backend.memory.embedder import Embedder
 from backend.memory.lance_store import LanceStore
 from backend.memory.shadow_agent import ShadowAgent
 from backend.memory.memory_manager import MemoryManager
 from backend.memory.curator import MemoryCurator
+from backend.agents.claude_agent import ClaudeAgent
+from backend.pool.agent_pool import AgentPool, run_health_monitor
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -48,9 +56,29 @@ async def lifespan(app: FastAPI):
     curator = MemoryCurator(store=store, broadcaster=broadcaster)
     app.state.curator = curator
 
+    # 6. Agent pool — factory keeps pool decoupled from any specific agent class
+    agent_pool = AgentPool(
+        agent_factory=lambda slot_id, workdir: ClaudeAgent(slot_id, workdir),
+        workdir=SHARED_WORKSPACE,
+        broadcaster=broadcaster,
+        idle_timeout=AGENT_IDLE_TIMEOUT_SECONDS,
+    )
+    app.state.agent_pool = agent_pool
+
+    # 7. Health monitor background task
+    health_task = asyncio.create_task(
+        run_health_monitor(agent_pool, interval=HEALTH_CHECK_INTERVAL_SECONDS)
+    )
+
     yield
 
     logger.info("AgentForge backend shutting down")
+    health_task.cancel()
+    try:
+        await health_task
+    except asyncio.CancelledError:
+        pass
+    await agent_pool.shutdown_all()
     await shadow_agent.shutdown()
     await embedder.shutdown()
     if ws._agent is not None:

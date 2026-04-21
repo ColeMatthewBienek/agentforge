@@ -1,6 +1,7 @@
 import { Layout } from "@/components/layout/Layout";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { MemoryBrowser } from "@/components/memory/MemoryBrowser";
+import { AgentDashboard } from "@/components/agents/AgentDashboard";
 
 function PlaceholderView({ name }: { name: string }) {
   return (
@@ -20,7 +21,7 @@ export default function App() {
           case "tasks":
             return <PlaceholderView name="Task Queue" />;
           case "agents":
-            return <PlaceholderView name="Agent Dashboard" />;
+            return <AgentDashboard />;
           case "schedule":
             return <PlaceholderView name="Schedule Manager" />;
           case "memory":
