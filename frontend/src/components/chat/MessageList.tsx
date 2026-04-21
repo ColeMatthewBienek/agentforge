@@ -1,6 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { type Message } from "@/store/agentStore";
+import { api } from "@/lib/api";
 
 interface MessageListProps {
   messages: Message[];
@@ -58,15 +59,18 @@ function timeAgo(iso: string): string {
 
 function RecallBubble({ content }: { content: string }) {
   let query = "";
-  let results: Array<{ id: string; role: string; content: string; created_at: string; pinned: boolean }> = [];
+  let initialResults: Array<{ id: string; role: string; content: string; created_at: string; pinned: boolean }> = [];
   try {
-    ({ query, results } = JSON.parse(content));
+    ({ query, results: initialResults } = JSON.parse(content));
   } catch {
     return null;
   }
 
+  const [results, setResults] = useState(initialResults);
+
   const pinRecord = async (id: string) => {
-    await fetch(`/api/memory/pin/${id}`, { method: "POST" });
+    await api.memory.pin(id);
+    setResults(prev => prev.map(r => r.id === id ? { ...r, pinned: true } : r));
   };
 
   return (
@@ -94,7 +98,7 @@ function RecallBubble({ content }: { content: string }) {
                 <span className="text-muted-foreground">{timeAgo(r.created_at)}</span>
                 {!r.pinned && (
                   <button
-                    onMouseDown={() => pinRecord(r.id)}
+                    onClick={() => pinRecord(r.id)}
                     className="text-muted-foreground hover:text-yellow-400 transition-colors"
                     title="Pin this memory"
                   >
