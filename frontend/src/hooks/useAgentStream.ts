@@ -18,6 +18,7 @@ export function useAgentStream() {
     setConnectionStatus,
     setMemoryStatus,
     addRecentMemory,
+    setCurrentSessionId,
   } = useAgentStore();
 
   const connect = useCallback(() => {
@@ -29,6 +30,7 @@ export function useAgentStream() {
 
     ws.onopen = () => {
       setConnectionStatus("connected");
+      setCurrentSessionId(sessionId.current);
     };
 
     ws.onmessage = (event: MessageEvent) => {
@@ -108,7 +110,7 @@ export function useAgentStream() {
       setConnectionStatus("error");
       ws.close();
     };
-  }, [addMessage, appendToLastAgentMessage, finalizeLastAgentMessage, setStreaming, setConnectionStatus, setMemoryStatus, addRecentMemory]);
+  }, [addMessage, appendToLastAgentMessage, finalizeLastAgentMessage, setStreaming, setConnectionStatus, setMemoryStatus, addRecentMemory, setCurrentSessionId]);
 
   useEffect(() => {
     connect();

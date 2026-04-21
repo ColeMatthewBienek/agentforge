@@ -29,6 +29,7 @@ interface AgentStore {
   contextNotes: string[];
   memoryStatus: MemoryStatus;
   recentMemories: RecentMemory[];
+  currentSessionId: string;
 
   addMessage: (role: MessageRole, content: string) => string;
   appendToLastAgentMessage: (chunk: string) => void;
@@ -40,6 +41,7 @@ interface AgentStore {
   addContextNote: (note: string) => void;
   setMemoryStatus: (s: MemoryStatus) => void;
   addRecentMemory: (m: RecentMemory) => void;
+  setCurrentSessionId: (id: string) => void;
 }
 
 export const useAgentStore = create<AgentStore>((set) => ({
@@ -50,6 +52,7 @@ export const useAgentStore = create<AgentStore>((set) => ({
   contextNotes: [],
   memoryStatus: "idle",
   recentMemories: [],
+  currentSessionId: "",
 
   addMessage: (role, content) => {
     const id = generateId();
@@ -94,4 +97,5 @@ export const useAgentStore = create<AgentStore>((set) => ({
       memoryStatus: "stored",
       recentMemories: [m, ...state.recentMemories].slice(0, 10),
     })),
+  setCurrentSessionId: (id) => set({ currentSessionId: id }),
 }));

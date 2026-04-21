@@ -1,5 +1,6 @@
 import { Layout } from "@/components/layout/Layout";
 import { ChatPanel } from "@/components/chat/ChatPanel";
+import { MemoryBrowser } from "@/components/memory/MemoryBrowser";
 
 function PlaceholderView({ name }: { name: string }) {
   return (
@@ -23,7 +24,7 @@ export default function App() {
           case "schedule":
             return <PlaceholderView name="Schedule Manager" />;
           case "memory":
-            return <PlaceholderView name="Memory Browser" />;
+            return <MemoryBrowser />;
           default:
             return <ChatPanel />;
         }
