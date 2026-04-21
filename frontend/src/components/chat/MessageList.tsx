@@ -48,7 +48,73 @@ function ThinkingDots() {
   );
 }
 
+function timeAgo(iso: string): string {
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  return `${Math.floor(m / 60)}h ago`;
+}
+
+function RecallBubble({ content }: { content: string }) {
+  let query = "";
+  let results: Array<{ id: string; role: string; content: string; created_at: string; pinned: boolean }> = [];
+  try {
+    ({ query, results } = JSON.parse(content));
+  } catch {
+    return null;
+  }
+
+  const pinRecord = async (id: string) => {
+    await fetch(`/api/memory/pin/${id}`, { method: "POST" });
+  };
+
+  return (
+    <div className="flex justify-center w-full">
+      <div className="w-full max-w-[90%] border border-border rounded-lg overflow-hidden text-xs">
+        <div className="px-3 py-2 bg-card border-b border-border flex items-center gap-2">
+          <span className="text-muted-foreground font-mono">recall</span>
+          <span className="text-foreground font-medium">{query}</span>
+          <span className="ml-auto text-muted-foreground">{results.length} result{results.length !== 1 ? "s" : ""}</span>
+        </div>
+        {results.length === 0 ? (
+          <div className="px-3 py-3 text-muted-foreground">No memories found.</div>
+        ) : (
+          results.map((r) => (
+            <div key={r.id} className="flex items-start gap-3 px-3 py-2 border-b border-border/50 last:border-0 hover:bg-secondary/30 transition-colors">
+              <span className={cn(
+                "shrink-0 font-mono px-1 py-0.5 rounded border mt-px text-[10px]",
+                r.pinned ? "border-yellow-500/40 text-yellow-400" :
+                r.role === "user" ? "border-accent/40 text-accent" : "border-primary/40 text-primary"
+              )}>
+                {r.pinned ? "pin" : r.role === "user" ? "user" : "asst"}
+              </span>
+              <p className="flex-1 text-foreground leading-relaxed line-clamp-3">{r.content}</p>
+              <div className="flex items-center gap-2 shrink-0 ml-2">
+                <span className="text-muted-foreground">{timeAgo(r.created_at)}</span>
+                {!r.pinned && (
+                  <button
+                    onMouseDown={() => pinRecord(r.id)}
+                    className="text-muted-foreground hover:text-yellow-400 transition-colors"
+                    title="Pin this memory"
+                  >
+                    ⊕
+                  </button>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MessageBubble({ message }: { message: Message }) {
+  if (message.role === "recall") {
+    return <RecallBubble content={message.content} />;
+  }
+
   if (message.role === "note") {
     return (
       <div className="flex justify-center">

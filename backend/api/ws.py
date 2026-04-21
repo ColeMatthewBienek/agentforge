@@ -82,6 +82,32 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
                     await websocket.send_json({"type": "chunk", "content": "Remembered."})
                     await websocket.send_json({"type": "done"})
 
+                elif name == "recall":
+                    query = args.strip()
+                    if not query:
+                        await websocket.send_json({"type": "chunk", "content": "Usage: /recall <query>"})
+                        await websocket.send_json({"type": "done"})
+                    elif not _memory_manager:
+                        await websocket.send_json({"type": "chunk", "content": "Memory system not available."})
+                        await websocket.send_json({"type": "done"})
+                    else:
+                        results = await _memory_manager._store.search(query, limit=10)
+                        await websocket.send_json({
+                            "type": "recall_results",
+                            "query": query,
+                            "results": [
+                                {
+                                    "id": r.id,
+                                    "role": r.role,
+                                    "content": r.content,
+                                    "created_at": r.created_at,
+                                    "pinned": r.pinned,
+                                    "source": r.source,
+                                }
+                                for r in results
+                            ],
+                        })
+
                 continue
 
             if msg_type != "prompt":

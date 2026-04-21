@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { generateId } from "@/lib/utils";
 
-export type MessageRole = "user" | "agent" | "note";
+export type MessageRole = "user" | "agent" | "note" | "recall";
 
 export interface Message {
   id: string;

@@ -39,6 +39,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     args: "<text>",
     clientOnly: false,
   },
+  {
+    name: "recall",
+    description: "Semantic search across all stored memories",
+    args: "<query>",
+    clientOnly: false,
+  },
 ];
 
 /** Parse raw input like "/cwd /home/user/project" → { name, args } */

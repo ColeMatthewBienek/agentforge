@@ -7,12 +7,13 @@ import { AgentSelector } from "./AgentSelector";
 import { MemoryIndicator } from "@/components/memory/MemoryIndicator";
 
 const HELP_TEXT = `Available commands:
-  /clear            Clear the conversation
-  /new              Start a new session (alias for /clear)
-  /help             Show this help text
-  /cwd <path>       Set the agent working directory
-  /btw <note>       Inject context the agent sees but won't reply to
-  /remember <text>  Pin a fact to memory — always surfaces in future context`;
+  /clear              Clear the conversation
+  /new                Start a new session (alias for /clear)
+  /help               Show this help text
+  /cwd <path>         Set the agent working directory
+  /btw <note>         Inject context the agent sees but won't reply to
+  /remember <text>    Pin a fact to memory — always surfaces in future context
+  /recall <query>     Semantic search across all stored memories`;
 
 export function ChatPanel() {
   const { messages, isStreaming } = useAgentStore();
@@ -51,6 +52,16 @@ export function ChatPanel() {
           } else {
             store.addContextNote(note);
             store.addMessage("note", note);
+          }
+          break;
+        }
+        case "recall": {
+          const query = args.trim();
+          if (!query) {
+            store.addMessage("agent", "Usage: /recall <query>");
+            store.finalizeLastAgentMessage();
+          } else {
+            sendCommand("recall", query);
           }
           break;
         }

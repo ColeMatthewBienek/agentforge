@@ -43,6 +43,15 @@ export function useAgentStream() {
         role?: string;
         preview?: string;
         created_at?: string;
+        query?: string;
+        results?: Array<{
+          id: string;
+          role: string;
+          content: string;
+          created_at: string;
+          pinned: boolean;
+          source: string;
+        }>;
       };
 
       switch (data.type) {
@@ -63,6 +72,12 @@ export function useAgentStream() {
           appendToLastAgentMessage(errText);
           finalizeLastAgentMessage();
           setStreaming(false);
+          break;
+        }
+
+        case "recall_results": {
+          const payload = JSON.stringify({ query: data.query, results: data.results ?? [] });
+          useAgentStore.getState().addMessage("recall", payload);
           break;
         }
 
