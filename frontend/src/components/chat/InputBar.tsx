@@ -6,10 +6,12 @@ import { SlashCommandMenu } from "./SlashCommandMenu";
 interface InputBarProps {
   onSend: (prompt: string) => void;
   onCommand: (name: string, args: string) => void;
+  onInterrupt: () => void;
   disabled: boolean;
+  isDebugMode: boolean;
 }
 
-export function InputBar({ onSend, onCommand, disabled }: InputBarProps) {
+export function InputBar({ onSend, onCommand, onInterrupt, disabled, isDebugMode }: InputBarProps) {
   const [value, setValue] = useState("");
   const [menuCommands, setMenuCommands] = useState<SlashCommand[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -35,12 +37,10 @@ export function InputBar({ onSend, onCommand, disabled }: InputBarProps) {
   const selectCommand = useCallback(
     (cmd: SlashCommand) => {
       if (cmd.args) {
-        // Leave cursor after command name so user can type args
         setValue(`/${cmd.name} `);
         closeMenu();
         textareaRef.current?.focus();
       } else {
-        // No args — execute immediately
         onCommand(cmd.name, "");
         setValue("");
         closeMenu();
@@ -128,17 +128,31 @@ export function InputBar({ onSend, onCommand, disabled }: InputBarProps) {
               disabled && "opacity-50 cursor-not-allowed"
             )}
           />
-          <button
-            onClick={handleSend}
-            disabled={disabled || !value.trim()}
-            className={cn(
-              "flex-shrink-0 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-              "bg-primary text-primary-foreground hover:bg-primary/90",
-              (disabled || !value.trim()) && "opacity-40 cursor-not-allowed"
-            )}
-          >
-            Send
-          </button>
+          {isDebugMode && (
+            <span className="flex-shrink-0 px-2 py-0.5 rounded text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/40 select-none">
+              DEBUG
+            </span>
+          )}
+          {disabled ? (
+            <button
+              onClick={onInterrupt}
+              className="flex-shrink-0 px-3 py-1.5 rounded-md text-sm font-medium transition-colors bg-red-500/20 text-red-400 border border-red-500/40 hover:bg-red-500/30"
+            >
+              Stop
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!value.trim()}
+              className={cn(
+                "flex-shrink-0 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                "bg-primary text-primary-foreground hover:bg-primary/90",
+                !value.trim() && "opacity-40 cursor-not-allowed"
+              )}
+            >
+              Send
+            </button>
+          )}
         </div>
         <p className="text-xs text-muted-foreground mt-1.5 ml-1">
           Shift+Enter for newline · / for commands

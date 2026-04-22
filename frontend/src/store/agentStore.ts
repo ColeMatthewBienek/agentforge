@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { generateId } from "@/lib/utils";
 
-export type MessageRole = "user" | "agent" | "note" | "recall";
+export type MessageRole = "user" | "agent" | "note" | "recall" | "debug_prompt";
 
 export interface Message {
   id: string;
@@ -41,6 +41,8 @@ interface AgentStore {
   currentSessionId: string;
   poolSlots: PoolSlot[];
   poolIdleTimeout: number;
+  isDebugMode: boolean;
+  debugSessionMessages: Message[];
 
   addMessage: (role: MessageRole, content: string) => string;
   appendToLastAgentMessage: (chunk: string) => void;
@@ -54,6 +56,8 @@ interface AgentStore {
   addRecentMemory: (m: RecentMemory) => void;
   setCurrentSessionId: (id: string) => void;
   setPoolSlots: (slots: PoolSlot[], idleTimeout?: number) => void;
+  setDebugMode: (v: boolean) => void;
+  clearDebugSession: () => void;
 }
 
 export const useAgentStore = create<AgentStore>((set) => ({
@@ -67,15 +71,19 @@ export const useAgentStore = create<AgentStore>((set) => ({
   currentSessionId: "",
   poolSlots: [],
   poolIdleTimeout: 300,
+  isDebugMode: false,
+  debugSessionMessages: [],
 
   addMessage: (role, content) => {
     const id = generateId();
-    set((state) => ({
-      messages: [
-        ...state.messages,
-        { id, role, content, timestamp: new Date(), streaming: role === "agent" },
-      ],
-    }));
+    set((state) => {
+      const msg: Message = { id, role, content, timestamp: new Date(), streaming: role === "agent" };
+      const update: Partial<AgentStore> = { messages: [...state.messages, msg] };
+      if (state.isDebugMode && (role === "user" || role === "agent")) {
+        update.debugSessionMessages = [...state.debugSessionMessages, msg];
+      }
+      return update;
+    });
     return id;
   },
 
@@ -117,4 +125,11 @@ export const useAgentStore = create<AgentStore>((set) => ({
       poolSlots: slots,
       poolIdleTimeout: idleTimeout ?? state.poolIdleTimeout,
     })),
+  setDebugMode: (v) =>
+    set((state) => ({
+      isDebugMode: v,
+      // Clear accumulated debug messages when starting a fresh debug session.
+      debugSessionMessages: v ? [] : state.debugSessionMessages,
+    })),
+  clearDebugSession: () => set({ debugSessionMessages: [] }),
 }));

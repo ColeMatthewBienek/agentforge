@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+import signal
 from pathlib import Path
 
 from .base import CLIAgent, _strip_ansi
@@ -84,6 +85,18 @@ class ClaudeAgent(CLIAgent):
             except asyncio.CancelledError:
                 pass
             self._reader_task = None
+
+    async def interrupt(self) -> None:
+        """Send SIGINT to the current subprocess without ending the session."""
+        proc = self._process
+        if proc is not None and proc.returncode is None:
+            try:
+                proc.send_signal(signal.SIGINT)
+            except ProcessLookupError:
+                pass
+        self.status = "idle"
+        self._capturing = False
+        await self._response_queue.put(None)
 
     async def kill(self) -> None:
         await self._kill_subprocess()

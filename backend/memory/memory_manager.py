@@ -49,6 +49,17 @@ class MemoryManager:
         )
         await self._shadow_agent.process(chunk)
 
+    def on_session_connect(self, session_id: str) -> None:
+        self._shadow_agent.register_session(session_id)
+
+    def cancel_session(self, session_id: str) -> None:
+        self._shadow_agent.cancel_session(session_id)
+
+    async def debug_summarize(self, content: str, session_id: str) -> None:
+        from backend.memory.session_summarizer import SessionSummarizer
+        summarizer = SessionSummarizer(self._store, self._shadow_agent._embedder)
+        await summarizer.summarize(content=content, session_id=session_id)
+
     async def remember(self, content: str, session_id: str) -> None:
         """Manual pin — /remember command. Embeds and stores immediately."""
         try:

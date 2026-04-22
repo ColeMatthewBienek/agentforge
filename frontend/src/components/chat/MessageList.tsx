@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { type Message } from "@/store/agentStore";
+import { useAgentStore, type Message } from "@/store/agentStore";
+import { sendDebugSummarize } from "@/lib/agentSocket";
 import { api } from "@/lib/api";
 
 interface MessageListProps {
@@ -114,7 +115,60 @@ function RecallBubble({ content }: { content: string }) {
   );
 }
 
+function DebugPromptBubble() {
+  const [handled, setHandled] = useState(false);
+  if (handled) return null;
+
+  const handleYes = () => {
+    const store = useAgentStore.getState();
+    const summary = store.debugSessionMessages
+      .map((m) => `[${m.role}]: ${m.content}`)
+      .join("\n\n");
+    store.addMessage("agent", "");
+    store.setStreaming(true);
+    sendDebugSummarize(summary);
+    store.clearDebugSession();
+    setHandled(true);
+  };
+
+  const handleNo = () => {
+    const store = useAgentStore.getState();
+    store.addMessage("agent", "Debug session discarded.");
+    store.finalizeLastAgentMessage();
+    store.clearDebugSession();
+    setHandled(true);
+  };
+
+  return (
+    <div className="flex justify-center">
+      <div className="border border-red-500/30 bg-red-500/5 rounded-lg px-4 py-3 text-sm max-w-sm w-full">
+        <p className="text-foreground mb-3">
+          Debug session ended. Save findings to memory?
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={handleYes}
+            className="px-3 py-1 bg-red-500/20 border border-red-500/40 rounded text-xs text-red-300 hover:bg-red-500/30 transition-colors"
+          >
+            Yes
+          </button>
+          <button
+            onClick={handleNo}
+            className="px-3 py-1 bg-secondary border border-border rounded text-xs text-muted-foreground hover:bg-secondary/80 transition-colors"
+          >
+            No
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MessageBubble({ message }: { message: Message }) {
+  if (message.role === "debug_prompt") {
+    return <DebugPromptBubble />;
+  }
+
   if (message.role === "recall") {
     return <RecallBubble content={message.content} />;
   }

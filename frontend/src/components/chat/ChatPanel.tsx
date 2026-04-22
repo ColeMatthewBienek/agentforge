@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useAgentStore } from "@/store/agentStore";
 import { useAgentStream } from "@/hooks/useAgentStream";
+import { sendInterrupt } from "@/lib/agentSocket";
 import { MessageList } from "./MessageList";
 import { InputBar } from "./InputBar";
 import { AgentSelector } from "./AgentSelector";
@@ -13,16 +14,18 @@ const HELP_TEXT = `Available commands:
   /cwd <path>         Set the agent working directory
   /btw <note>         Inject context the agent sees but won't reply to
   /remember <text>    Pin a fact to memory — always surfaces in future context
-  /recall <query>     Semantic search across all stored memories`;
+  /recall <query>     Semantic search across all stored memories
+  /debug              Toggle memory isolation (disables context injection and shadow recording)`;
 
 export function ChatPanel() {
-  const { messages, isStreaming } = useAgentStore();
-  const { sendPrompt, sendCommand } = useAgentStream();
+  const { messages, isStreaming, isDebugMode } = useAgentStore();
+  const { sendPrompt, sendCommand, sendDispatch } = useAgentStream();
 
   const handleSend = useCallback(
     (prompt: string) => {
-      const { contextNotes } = useAgentStore.getState();
-      if (contextNotes.length > 0) {
+      const { contextNotes, isDebugMode: debugMode } = useAgentStore.getState();
+      // Skip btw context injection in debug mode
+      if (!debugMode && contextNotes.length > 0) {
         const prefix = contextNotes.map((n) => `[Context: ${n}]`).join("\n");
         sendPrompt(`${prefix}\n\n${prompt}`);
       } else {
@@ -91,12 +94,45 @@ export function ChatPanel() {
           }
           break;
         }
+        case "dispatch": {
+          const prompt = args.trim();
+          if (!prompt) {
+            store.addMessage("agent", "Usage: /dispatch <prompt>");
+            store.finalizeLastAgentMessage();
+          } else {
+            store.addMessage("user", `/dispatch ${prompt}`);
+            store.addMessage("agent", "");
+            store.setStreaming(true);
+            sendDispatch([{ prompt, title: prompt.slice(0, 60) }]);
+          }
+          break;
+        }
+        case "debug": {
+          const newMode = !store.isDebugMode;
+          store.setDebugMode(newMode);
+          sendCommand("set_debug", String(newMode));
+          if (newMode) {
+            store.addMessage(
+              "agent",
+              "Debug mode ON — memory isolation active.\nContext injection, shadow recording, and /btw notes disabled.\nUse /remember to explicitly save any findings."
+            );
+            store.finalizeLastAgentMessage();
+          } else {
+            store.addMessage("agent", "Debug mode OFF — memory restored.");
+            store.finalizeLastAgentMessage();
+            // Offer to save findings if the debug session had messages.
+            if (store.debugSessionMessages.length > 0) {
+              store.addMessage("debug_prompt", "");
+            }
+          }
+          break;
+        }
         default:
           store.addMessage("agent", `Unknown command: /${name}`);
           store.finalizeLastAgentMessage();
       }
     },
-    [sendCommand]
+    [sendCommand, sendDispatch]
   );
 
   return (
@@ -114,7 +150,13 @@ export function ChatPanel() {
       <div className="flex items-center justify-end px-4 py-1 border-t border-border/50">
         <MemoryIndicator />
       </div>
-      <InputBar onSend={handleSend} onCommand={handleCommand} disabled={isStreaming} />
+      <InputBar
+        onSend={handleSend}
+        onCommand={handleCommand}
+        onInterrupt={sendInterrupt}
+        disabled={isStreaming}
+        isDebugMode={isDebugMode}
+      />
     </div>
   );
 }

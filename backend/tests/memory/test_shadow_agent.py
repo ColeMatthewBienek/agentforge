@@ -17,6 +17,7 @@ async def agent():
     embedder.embed.return_value = [0.1] * 768
     broadcaster = AsyncMock()
     sa = ShadowAgent(store=store, embedder=embedder, broadcaster=broadcaster)
+    sa.register_session("s1")  # _chunk() uses session_id="s1"
     await sa.start()
     yield sa
     await sa.shutdown()

@@ -12,12 +12,49 @@ from backend.config import SHARED_WORKSPACE
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+
+async def handle_parallel_dispatch(
+    tasks: list[dict],
+    websocket: WebSocket,
+    pool: object,
+) -> None:
+    """Acquire one pool slot per task, run them concurrently, stream labelled chunks."""
+
+    async def run_one(task: dict) -> None:
+        title = task.get("title", "")
+        slot = await pool.acquire(task_id=task.get("task_id"), task_title=title)
+        try:
+            workdir_str = task.get("workdir")
+            if workdir_str:
+                p = Path(workdir_str).expanduser()
+                if p.is_dir():
+                    slot.agent.workdir = p
+
+            await slot.agent.send(task.get("prompt", ""))
+
+            async for chunk in slot.agent.stream_output(idle_timeout=120.0):
+                await websocket.send_json({
+                    "type": "chunk",
+                    "slot_id": slot.slot_id,
+                    "task_title": title,
+                    "content": chunk,
+                })
+        except Exception as exc:
+            logger.error("Dispatch slot %s error: %s", slot.slot_id, exc)
+        finally:
+            await pool.release(slot)
+
+    await asyncio.gather(*[run_one(t) for t in tasks])
+    await websocket.send_json({"type": "dispatch_done"})
+
+
 # Phase 1: single global agent
 _agent: ClaudeAgent | None = None
 _agent_lock = asyncio.Lock()
 
-# Set by main.py lifespan after memory system initializes
+# Set by main.py lifespan after subsystems initialize
 _memory_manager = None
+_agent_pool = None
 
 
 async def get_or_start_agent() -> ClaudeAgent:
@@ -38,6 +75,8 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
     await websocket.accept()
     await broadcaster.connect(websocket)
     logger.info("WebSocket connected: session=%s", session_id)
+    if _memory_manager:
+        _memory_manager.on_session_connect(session_id)
 
     try:
         agent = await get_or_start_agent()
@@ -48,6 +87,43 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
         await broadcaster.disconnect(websocket)
         await websocket.close()
         return
+
+    debug_mode = False
+    current_stream_task: asyncio.Task | None = None
+
+    async def _do_stream(prompt: str, is_debug: bool) -> None:
+        """Runs as a background task so the receive loop stays live for interrupt."""
+        full_response: list[str] = []
+        sent_any = False
+        try:
+            await agent.send(prompt)
+        except RuntimeError as exc:
+            await websocket.send_json({"type": "error", "message": str(exc)})
+            return
+        try:
+            async for chunk in agent.stream_output(idle_timeout=120.0):
+                await websocket.send_json({"type": "chunk", "content": chunk})
+                full_response.append(chunk)
+                sent_any = True
+        except asyncio.CancelledError:
+            return  # interrupted — frontend gets "interrupted" from the interrupt handler
+        except Exception as exc:
+            logger.error("Error during stream: %s", exc)
+            await websocket.send_json({"type": "error", "message": str(exc)})
+            return
+
+        if not sent_any:
+            await websocket.send_json({"type": "error", "message": "Agent returned an empty response."})
+            return
+
+        await websocket.send_json({"type": "done"})
+
+        if _memory_manager and full_response and not is_debug:
+            await _memory_manager.on_message(
+                role="assistant",
+                content="".join(full_response),
+                session_id=session_id,
+            )
 
     try:
         while True:
@@ -60,6 +136,20 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
 
             msg_type = msg.get("type")
 
+            # ── Interrupt ──────────────────────────────────────────────────────
+            if msg_type == "interrupt":
+                if current_stream_task and not current_stream_task.done():
+                    current_stream_task.cancel()
+                    try:
+                        await current_stream_task
+                    except asyncio.CancelledError:
+                        pass
+                    current_stream_task = None
+                await agent.interrupt()
+                await websocket.send_json({"type": "interrupted"})
+                continue
+
+            # ── Commands ───────────────────────────────────────────────────────
             if msg_type == "command":
                 name = str(msg.get("name", "")).strip()
                 args = str(msg.get("args", "")).strip()
@@ -108,8 +198,28 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
                             ],
                         })
 
+                elif name == "set_debug":
+                    debug_mode = args.strip().lower() == "true"
+                    await websocket.send_json({"type": "debug_toggled", "enabled": debug_mode})
+
+                elif name == "debug_summarize":
+                    if args and _memory_manager:
+                        await _memory_manager.debug_summarize(content=args, session_id=session_id)
+                    await websocket.send_json({"type": "chunk", "content": "Debug session saved to memory."})
+                    await websocket.send_json({"type": "done"})
+
                 continue
 
+            # ── Dispatch ───────────────────────────────────────────────────────
+            if msg_type == "dispatch":
+                if _agent_pool is None:
+                    await websocket.send_json({"type": "error", "message": "Agent pool not available"})
+                else:
+                    tasks = [t for t in msg.get("tasks", []) if isinstance(t, dict)]
+                    await handle_parallel_dispatch(tasks, websocket, _agent_pool)
+                continue
+
+            # ── Prompt ─────────────────────────────────────────────────────────
             if msg_type != "prompt":
                 continue
 
@@ -117,49 +227,20 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
             if not raw_prompt:
                 continue
 
-            # Integration point 1: enrich prompt with memory context before sending
+            # Skip context injection and shadow recording in debug mode
             prompt = raw_prompt
-            if _memory_manager:
+            if _memory_manager and not debug_mode:
                 prompt = await _memory_manager.build_context(raw_prompt, session_id=session_id)
 
-            # Integration point 2: store user message
-            if _memory_manager:
+            if _memory_manager and not debug_mode:
                 await _memory_manager.on_message(role="user", content=raw_prompt, session_id=session_id)
 
-            try:
-                await agent.send(prompt)
-            except RuntimeError as exc:
-                await websocket.send_json({"type": "error", "message": str(exc)})
+            if current_stream_task and not current_stream_task.done():
+                await websocket.send_json({"type": "error", "message": "Agent is busy"})
                 continue
 
-            full_response: list[str] = []
-            sent_any = False
-            try:
-                async for chunk in agent.stream_output(idle_timeout=120.0):
-                    await websocket.send_json({"type": "chunk", "content": chunk})
-                    full_response.append(chunk)
-                    sent_any = True
-            except Exception as exc:
-                logger.error("Error during stream: %s", exc)
-                await websocket.send_json({"type": "error", "message": str(exc)})
-                continue
-
-            if not sent_any:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": "Agent returned an empty response.",
-                })
-                continue
-
-            await websocket.send_json({"type": "done"})
-
-            # Integration point 2: store assistant response
-            if _memory_manager and full_response:
-                await _memory_manager.on_message(
-                    role="assistant",
-                    content="".join(full_response),
-                    session_id=session_id,
-                )
+            # Streaming runs as a background task so interrupt messages can arrive.
+            current_stream_task = asyncio.create_task(_do_stream(prompt, debug_mode))
 
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected: session=%s", session_id)
@@ -170,4 +251,12 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
         except Exception:
             pass
     finally:
+        if current_stream_task and not current_stream_task.done():
+            current_stream_task.cancel()
+            try:
+                await current_stream_task
+            except asyncio.CancelledError:
+                pass
+        if _memory_manager:
+            _memory_manager.cancel_session(session_id)
         await broadcaster.disconnect(websocket)

@@ -1,5 +1,6 @@
 import asyncio
 import re
+import signal
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import AsyncIterator, Literal
@@ -121,6 +122,17 @@ class CLIAgent(ABC):
 
     async def is_generating(self) -> bool:
         return self.status == "busy"
+
+    async def interrupt(self) -> None:
+        """Send SIGINT to the running process without killing the session."""
+        if self._process and self._process.isalive():
+            try:
+                self._process.kill(signal.SIGINT)
+            except Exception:
+                pass
+        self.status = "idle"
+        self._capturing = False
+        await self._response_queue.put(None)
 
     async def kill(self) -> None:
         if self._process and self._process.isalive():

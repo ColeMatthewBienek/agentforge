@@ -1,13 +1,6 @@
 import { useAgentStore } from "@/store/agentStore";
 import { cn } from "@/lib/utils";
 
-const STATUS_DOT: Record<string, string> = {
-  idle: "bg-status-idle",
-  busy: "bg-status-busy",
-  active: "bg-status-active",
-  error: "bg-status-error",
-};
-
 export function AgentSelector() {
   const { selectedAgent, connectionStatus } = useAgentStore();
 

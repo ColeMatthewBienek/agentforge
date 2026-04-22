@@ -45,6 +45,17 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     args: "<query>",
     clientOnly: false,
   },
+  {
+    name: "dispatch",
+    description: "Run a prompt in a parallel pool agent (dev testing)",
+    args: "<prompt>",
+    clientOnly: false,
+  },
+  {
+    name: "debug",
+    description: "Toggle memory isolation — disables context injection and shadow recording",
+    clientOnly: false,
+  },
 ];
 
 /** Parse raw input like "/cwd /home/user/project" → { name, args } */

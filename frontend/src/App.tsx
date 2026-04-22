@@ -2,6 +2,10 @@ import { Layout } from "@/components/layout/Layout";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { MemoryBrowser } from "@/components/memory/MemoryBrowser";
 import { AgentDashboard } from "@/components/agents/AgentDashboard";
+import { initSocket } from "@/lib/agentSocket";
+
+// Connect once at module load time — before any component mounts.
+initSocket();
 
 function PlaceholderView({ name }: { name: string }) {
   return (

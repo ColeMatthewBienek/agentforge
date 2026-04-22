@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI):
     curator = MemoryCurator(store=store, broadcaster=broadcaster)
     app.state.curator = curator
 
-    # 6. Agent pool — factory keeps pool decoupled from any specific agent class
+    # 6. Agent pool — inject into app state and ws module
     agent_pool = AgentPool(
         agent_factory=lambda slot_id, workdir: ClaudeAgent(slot_id, workdir),
         workdir=SHARED_WORKSPACE,
@@ -64,6 +64,7 @@ async def lifespan(app: FastAPI):
         idle_timeout=AGENT_IDLE_TIMEOUT_SECONDS,
     )
     app.state.agent_pool = agent_pool
+    ws._agent_pool = agent_pool
 
     # 7. Health monitor background task
     health_task = asyncio.create_task(
