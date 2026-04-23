@@ -8,6 +8,7 @@ import { AgentSelector } from "./AgentSelector";
 import { MemoryIndicator } from "@/components/memory/MemoryIndicator";
 
 const HELP_TEXT = `Available commands:
+  /plan <direction>   Decompose into parallel agent tasks (Task Queue UI)
   /clear              Clear the conversation
   /new                Start a new session (alias for /clear)
   /help               Show this help text
@@ -106,6 +107,19 @@ export function ChatPanel() {
             store.addMessage("agent", "");
             store.setStreaming(true);
             sendDispatch([{ prompt, title: prompt.slice(0, 60) }]);
+          }
+          break;
+        }
+        case "plan": {
+          const direction = args.trim();
+          if (!direction) {
+            store.addMessage("agent", "Usage: /plan <direction>");
+            store.finalizeLastAgentMessage();
+          } else {
+            store.addMessage("user", `/plan ${direction}`);
+            store.addMessage("agent", "");
+            store.setStreaming(true);
+            sendCommand("plan", direction);
           }
           break;
         }

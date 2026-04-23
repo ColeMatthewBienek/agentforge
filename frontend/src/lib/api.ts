@@ -22,11 +22,20 @@ export const api = {
       api.get<MemoryPage>(`/api/memory?page=${page}&page_size=${pageSize}`),
     search: (q: string, limit = 20) =>
       api.get<{ records: MemoryRecord[] }>(`/api/memory/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+    searchScoped: (q: string, sessionIds: string[], limit = 20) =>
+      api.get<{ records: MemoryRecord[] }>(
+        `/api/memory/search_scoped?q=${encodeURIComponent(q)}&session_ids=${sessionIds.join(",")}&limit=${limit}`
+      ),
     session: (sessionId: string) =>
       api.get<{ records: MemoryRecord[] }>(`/api/memory/session/${sessionId}`),
     pin: (id: string) => api.post<{ status: string }>(`/api/memory/pin/${id}`),
     unpin: (id: string) => api.post<{ status: string }>(`/api/memory/unpin/${id}`),
     delete: (id: string) => api.del(`/api/memory/${id}`),
+  },
+  tasks: {
+    sessions: () => api.get<{ sessions: PlanSession[] }>("/api/tasks/sessions"),
+    sessionDetail: (id: string) =>
+      api.get<PlanSession & { tasks: PlanTask[] }>(`/api/tasks/sessions/${id}`),
   },
 };
 
@@ -51,4 +60,22 @@ export interface MemoryPage {
   total: number;
   page: number;
   page_size: number;
+}
+
+export interface PlanSession {
+  id: string;
+  direction: string;
+  task_count: number;
+  status: string;
+  created_at: string;
+  completed_at: string | null;
+  decomposer_error?: string | null;
+}
+
+export interface PlanTask {
+  id: string;
+  session_id: string;
+  title: string;
+  status: string;
+  complexity: string;
 }

@@ -1,7 +1,9 @@
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -56,6 +58,9 @@ _agent_lock = asyncio.Lock()
 _memory_manager = None
 _agent_pool = None
 _executor = None
+_decomposer = None
+_task_graph_executor = None
+_db = None
 
 
 async def get_or_start_agent() -> ClaudeAgent:
@@ -78,6 +83,16 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
     logger.info("WebSocket connected: session=%s", session_id)
     if _memory_manager:
         _memory_manager.on_session_connect(session_id)
+    if _db:
+        try:
+            await _db.execute(
+                "INSERT OR IGNORE INTO sessions (id, type, label, status, created_at) "
+                "VALUES (?, 'chat', ?, 'running', ?)",
+                (session_id, f"Chat {session_id[:8]}", datetime.now(timezone.utc).isoformat()),
+            )
+            await _db.commit()
+        except Exception as e:
+            logger.warning("Session registration failed: %s", e)
 
     try:
         agent = await get_or_start_agent()
@@ -174,18 +189,39 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
                     await websocket.send_json({"type": "done"})
 
                 elif name == "recall":
-                    query = args.strip()
+                    parts = args.strip().split(" --scope ", 1)
+                    query = parts[0].strip()
+                    scope = parts[1].strip() if len(parts) > 1 else "current"
                     if not query:
-                        await websocket.send_json({"type": "chunk", "content": "Usage: /recall <query>"})
+                        await websocket.send_json({"type": "chunk", "content": "Usage: /recall <query> [--scope plan|all]\n"})
                         await websocket.send_json({"type": "done"})
                     elif not _memory_manager:
                         await websocket.send_json({"type": "chunk", "content": "Memory system not available."})
                         await websocket.send_json({"type": "done"})
                     else:
-                        results = await _memory_manager._store.search(query, limit=10)
+                        if scope == "current":
+                            results = await _memory_manager._store.search_scoped(
+                                query, session_ids=[session_id], limit=10
+                            )
+                        elif scope == "plan" and _db:
+                            try:
+                                rows = await _db.execute_fetchall(
+                                    "SELECT id FROM sessions WHERE parent_id = ? OR plan_session_id IN "
+                                    "(SELECT id FROM sessions WHERE parent_id = ? AND type = 'plan')",
+                                    (session_id, session_id),
+                                )
+                                child_ids = [r["id"] for r in rows]
+                                results = await _memory_manager._store.search_scoped(
+                                    query, session_ids=[session_id] + child_ids, limit=15
+                                )
+                            except Exception:
+                                results = await _memory_manager._store.search(query, limit=15)
+                        else:
+                            results = await _memory_manager._store.search_scoped(query, session_ids=None, limit=15)
                         await websocket.send_json({
                             "type": "recall_results",
                             "query": query,
+                            "scope": scope,
                             "results": [
                                 {
                                     "id": r.id,
@@ -194,10 +230,157 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
                                     "created_at": r.created_at,
                                     "pinned": r.pinned,
                                     "source": r.source,
+                                    "session_id": r.session_id,
                                 }
                                 for r in results
                             ],
                         })
+
+                elif name == "plan":
+                    direction = args.strip()
+                    if not direction:
+                        await websocket.send_json({"type": "chunk", "content": "Usage: /plan <direction>\n"})
+                        await websocket.send_json({"type": "done"})
+                    elif _decomposer is None or _task_graph_executor is None:
+                        await websocket.send_json({"type": "error", "message": "Plan system not initialized"})
+                    else:
+                        plan_session_id = str(uuid4())[:12]
+                        now_str = datetime.now(timezone.utc).isoformat()
+
+                        await websocket.send_json({
+                            "type": "build_started",
+                            "session_id": plan_session_id,
+                            "direction": direction,
+                        })
+                        await websocket.send_json({
+                            "type": "chunk",
+                            "content": f"Decomposing: {direction}\n",
+                        })
+
+                        if _db:
+                            try:
+                                await _db.execute(
+                                    "INSERT INTO sessions (id, type, parent_id, label, status, created_at) "
+                                    "VALUES (?, 'plan', ?, ?, 'running', ?)",
+                                    (plan_session_id, session_id, direction[:200], now_str),
+                                )
+                                await _db.execute(
+                                    "INSERT INTO build_sessions "
+                                    "(id, chat_session_id, direction, workdir, status, created_at) "
+                                    "VALUES (?, ?, ?, ?, 'running', ?)",
+                                    (plan_session_id, session_id, direction, str(agent.workdir), now_str),
+                                )
+                                await _db.commit()
+                            except Exception as e:
+                                logger.warning("Failed to persist plan session: %s", e)
+
+                        if _memory_manager:
+                            _memory_manager.on_session_connect(plan_session_id)
+
+                        plan_tasks, decomposer_error = await _decomposer.decompose(
+                            direction=direction,
+                            workdir=str(agent.workdir),
+                            plan_session_id=plan_session_id,
+                            chat_session_id=session_id,
+                        )
+
+                        if decomposer_error and _db:
+                            try:
+                                await _db.execute(
+                                    "UPDATE build_sessions SET decomposer_error = ? WHERE id = ?",
+                                    (decomposer_error[:5000], plan_session_id),
+                                )
+                                await _db.commit()
+                            except Exception as e:
+                                logger.warning("Failed to persist decomposer_error: %s", e)
+                            await websocket.send_json({
+                                "type": "decomposer_error",
+                                "session_id": plan_session_id,
+                                "error": decomposer_error,
+                            })
+                            await websocket.send_json({
+                                "type": "chunk",
+                                "content": (
+                                    f"⚠️ Decomposer failed — running as single task.\n"
+                                    f"Error:\n```\n{decomposer_error}\n```\n"
+                                    f"Use /plan to retry, or let the fallback task run.\n\n"
+                                ),
+                            })
+
+                        if _db:
+                            try:
+                                await _db.execute(
+                                    "UPDATE build_sessions SET task_count = ? WHERE id = ?",
+                                    (len(plan_tasks), plan_session_id),
+                                )
+                                for task in plan_tasks:
+                                    task.session_id = plan_session_id
+                                    await _db.execute(
+                                        "INSERT INTO build_tasks "
+                                        "(id, session_id, title, prompt, dependencies, complexity, status, created_at) "
+                                        "VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)",
+                                        (task.id, plan_session_id, task.title, task.prompt,
+                                         json.dumps(task.dependencies), task.complexity, task.created_at),
+                                    )
+                                await _db.commit()
+                            except Exception as e:
+                                logger.warning("Failed to persist plan tasks: %s", e)
+
+                        await websocket.send_json({
+                            "type": "chunk",
+                            "content": f"Spawning {len(plan_tasks)} task{'s' if len(plan_tasks) != 1 else ''}...\n",
+                        })
+
+                        asyncio.create_task(
+                            _task_graph_executor.execute(
+                                tasks=plan_tasks,
+                                plan_session_id=plan_session_id,
+                                chat_session_id=session_id,
+                                workdir=str(agent.workdir),
+                                websocket=websocket,
+                                db=_db,
+                            )
+                        )
+
+                elif name == "task_input":
+                    # args format: "task_id|||user_message"
+                    sep = "|||"
+                    if sep not in args:
+                        await websocket.send_json({"type": "error", "message": "Invalid task_input format"})
+                    elif _task_graph_executor is None or _agent_pool is None:
+                        await websocket.send_json({"type": "error", "message": "Task system not initialized"})
+                    else:
+                        task_id, user_msg = args.split(sep, 1)
+                        task_id = task_id.strip()
+                        user_msg = user_msg.strip()
+                        session_id_for_task = _task_graph_executor.get_task_session_id(task_id)
+
+                        async def _run_task_reply(
+                            tid=task_id, msg=user_msg, sid=session_id_for_task
+                        ) -> None:
+                            from backend.agents.claude_agent import ClaudeAgent
+                            slot = await _agent_pool.acquire(task_id=tid, task_title="follow-up")
+                            try:
+                                if sid:
+                                    slot.agent._claude_session_id = sid
+                                await slot.agent.send(msg)
+                                async for chunk in slot.agent.stream_output(idle_timeout=120.0):
+                                    await websocket.send_json({
+                                        "type": "task_chunk",
+                                        "task_id": tid,
+                                        "slot_id": slot.slot_id,
+                                        "content": chunk,
+                                    })
+                                # Update session id after the reply
+                                _task_graph_executor._task_sessions[tid] = getattr(
+                                    slot.agent, "_claude_session_id", sid
+                                )
+                            except Exception as exc:
+                                logger.error("task_input error for %s: %s", tid, exc)
+                            finally:
+                                await _agent_pool.release(slot)
+
+                        asyncio.create_task(_run_task_reply())
 
                 elif name == "new_session":
                     agent.reset_session()
@@ -316,4 +499,13 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
                 pass
         if _memory_manager:
             _memory_manager.cancel_session(session_id)
+        if _db:
+            try:
+                await _db.execute(
+                    "UPDATE sessions SET status = 'complete', completed_at = ? WHERE id = ?",
+                    (datetime.now(timezone.utc).isoformat(), session_id),
+                )
+                await _db.commit()
+            except Exception as e:
+                logger.warning("Session close update failed: %s", e)
         await broadcaster.disconnect(websocket)

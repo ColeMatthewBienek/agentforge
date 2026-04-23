@@ -30,6 +30,30 @@ export interface PoolSlot {
   idle_since: string | null;
 }
 
+export interface TaskSpec {
+  id: string;
+  session_id: string;
+  title: string;
+  prompt: string;
+  status: "pending" | "running" | "complete" | "error" | "cancelled";
+  complexity: "low" | "medium" | "high";
+  dependencies: string[];
+  slot_id: string | null;
+  worktree_path: string | null;
+  error: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface BuildSession {
+  id: string;
+  direction: string;
+  task_count: number;
+  status: "running" | "complete" | "error" | "cancelled";
+  created_at: string;
+  completed_at: string | null;
+}
+
 interface AgentStore {
   messages: Message[];
   isStreaming: boolean;
@@ -43,6 +67,13 @@ interface AgentStore {
   poolIdleTimeout: number;
   isDebugMode: boolean;
   debugSessionMessages: Message[];
+
+  // Task / plan state
+  activeView: string;
+  activePlanSessionId: string | null;
+  buildSessions: BuildSession[];
+  activeTasks: TaskSpec[];
+  taskChunks: Record<string, string>;
 
   addMessage: (role: MessageRole, content: string) => string;
   appendToLastAgentMessage: (chunk: string) => void;
@@ -58,6 +89,15 @@ interface AgentStore {
   setPoolSlots: (slots: PoolSlot[], idleTimeout?: number) => void;
   setDebugMode: (v: boolean) => void;
   clearDebugSession: () => void;
+
+  setActiveView: (view: string) => void;
+  setPlanSession: (id: string | null) => void;
+  addBuildSession: (s: BuildSession) => void;
+  setTaskGraph: (session_id: string, tasks: TaskSpec[]) => void;
+  updateTask: (task: Partial<TaskSpec> & { id: string }) => void;
+  appendTaskChunk: (task_id: string, content: string) => void;
+  planSessionWarnings: Record<string, string>;
+  markPlanSessionWarning: (session_id: string, error: string) => void;
 }
 
 export const useAgentStore = create<AgentStore>((set) => ({
@@ -73,6 +113,13 @@ export const useAgentStore = create<AgentStore>((set) => ({
   poolIdleTimeout: 300,
   isDebugMode: false,
   debugSessionMessages: [],
+
+  activeView: "chat",
+  activePlanSessionId: null,
+  buildSessions: [],
+  activeTasks: [],
+  taskChunks: {},
+  planSessionWarnings: {},
 
   addMessage: (role, content) => {
     const id = generateId();
@@ -128,8 +175,30 @@ export const useAgentStore = create<AgentStore>((set) => ({
   setDebugMode: (v) =>
     set((state) => ({
       isDebugMode: v,
-      // Clear accumulated debug messages when starting a fresh debug session.
       debugSessionMessages: v ? [] : state.debugSessionMessages,
     })),
   clearDebugSession: () => set({ debugSessionMessages: [] }),
+
+  setActiveView: (view) => set({ activeView: view }),
+  setPlanSession: (id) => set({ activePlanSessionId: id }),
+  addBuildSession: (s) =>
+    set((state) => ({ buildSessions: [s, ...state.buildSessions] })),
+  setTaskGraph: (_session_id, tasks) => set({ activeTasks: tasks }),
+  updateTask: (update) =>
+    set((state) => ({
+      activeTasks: state.activeTasks.map((t) =>
+        t.id === update.id ? { ...t, ...update } : t
+      ),
+    })),
+  appendTaskChunk: (task_id, content) =>
+    set((state) => ({
+      taskChunks: {
+        ...state.taskChunks,
+        [task_id]: (state.taskChunks[task_id] ?? "") + content,
+      },
+    })),
+  markPlanSessionWarning: (session_id, error) =>
+    set((state) => ({
+      planSessionWarnings: { ...state.planSessionWarnings, [session_id]: error },
+    })),
 }));

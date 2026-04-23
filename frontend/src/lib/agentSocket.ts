@@ -1,6 +1,6 @@
 import { useAgentStore } from "@/store/agentStore";
 import { stripAnsi, generateId } from "@/lib/utils";
-import type { PoolSlot, RecentMemory } from "@/store/agentStore";
+import type { PoolSlot, RecentMemory, TaskSpec } from "@/store/agentStore";
 
 const WS_URL = "ws://localhost:8765";
 const SESSION_ID = generateId();
@@ -45,6 +45,8 @@ function connect() {
       preview?: string;
       created_at?: string;
       query?: string;
+      scope?: string;
+      message?: string;
       results?: Array<{
         id: string;
         role: string;
@@ -55,6 +57,17 @@ function connect() {
       }>;
       slots?: PoolSlot[];
       idle_timeout_seconds?: number;
+      // plan/task events
+      session_id?: string;
+      direction?: string;
+      tasks?: unknown[];
+      task?: unknown;
+      task_id?: string;
+      slot_id?: string;
+      total?: number;
+      succeeded?: number;
+      failed?: number;
+      error?: string;
     };
 
     const s = useAgentStore.getState();
@@ -88,13 +101,63 @@ function connect() {
       }
 
       case "recall_results": {
-        const payload = JSON.stringify({ query: data.query, results: data.results ?? [] });
+        const payload = JSON.stringify({
+          query: data.query,
+          results: data.results ?? [],
+          scope: data.scope,
+        });
         useAgentStore.getState().addMessage("recall", payload);
         break;
       }
 
       case "AGENT_POOL_UPDATE":
         s.setPoolSlots((data.slots ?? []) as PoolSlot[], data.idle_timeout_seconds);
+        break;
+
+      case "build_started":
+        s.setPlanSession(data.session_id ?? null);
+        s.setActiveView("tasks");
+        if (data.session_id) {
+          s.addBuildSession({
+            id: data.session_id as string,
+            direction: (data.direction as string) ?? "",
+            task_count: 0,
+            status: "running",
+            created_at: new Date().toISOString(),
+            completed_at: null,
+          });
+        }
+        break;
+
+      case "task_graph":
+        if (data.session_id && data.tasks) {
+          s.setTaskGraph(data.session_id as string, data.tasks as TaskSpec[]);
+        }
+        break;
+
+      case "task_update":
+        if (data.task) {
+          s.updateTask(data.task as Partial<TaskSpec> & { id: string });
+        }
+        break;
+
+      case "task_chunk":
+        if (data.task_id && data.content) {
+          s.appendTaskChunk(data.task_id as string, stripAnsi(data.content ?? ""));
+        }
+        break;
+
+      case "build_complete":
+        s.setPlanSession(null);
+        break;
+
+      case "decomposer_error":
+        if (data.session_id) {
+          useAgentStore.getState().markPlanSessionWarning(
+            data.session_id as string,
+            (data.error as string) ?? "Unknown decomposer error"
+          );
+        }
         break;
 
       case "MEMORY_STORED": {
@@ -158,6 +221,11 @@ export function sendInterrupt() {
 export function sendDebugSummarize(content: string) {
   if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
   _ws.send(JSON.stringify({ type: "command", name: "debug_summarize", args: content }));
+}
+
+export function sendTaskInput(taskId: string, message: string) {
+  if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
+  _ws.send(JSON.stringify({ type: "command", name: "task_input", args: `${taskId}|||${message}` }));
 }
 
 export function sendBuild(prompt: string, baseDir?: string) {

@@ -158,6 +158,66 @@ class ClaudeAgent(CLIAgent):
             self._capturing = False
             self.status = "idle"
 
+    async def run_oneshot(self, prompt: str, timeout: int = 90) -> str:
+        """
+        Spawn a fresh claude subprocess, collect the complete text response, return it.
+        Not streamed to UI. Used by Decomposer. No --resume — always a clean session.
+        Raises asyncio.TimeoutError if timeout exceeded.
+        """
+        cmd = [
+            "claude",
+            "--output-format", "stream-json",
+            "--verbose",
+            "--print",
+            "--dangerously-skip-permissions",
+            "-",
+        ]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+            cwd=str(self.workdir),
+        )
+        proc.stdin.write(prompt.encode("utf-8"))
+        await proc.stdin.drain()
+        proc.stdin.close()
+
+        accumulated: list[str] = []
+
+        async def _read() -> None:
+            async for raw_line in proc.stdout:
+                line = _strip_ansi(raw_line.decode("utf-8", errors="replace")).strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                etype = event.get("type")
+                if etype == "assistant":
+                    for block in event.get("message", {}).get("content", []):
+                        if block.get("type") == "text" and block.get("text"):
+                            accumulated.append(block["text"])
+                elif etype == "result":
+                    result = event.get("result", "")
+                    if result and not accumulated:
+                        accumulated.append(result)
+
+        try:
+            async with asyncio.timeout(timeout):
+                await _read()
+                await proc.wait()
+        except asyncio.TimeoutError:
+            try:
+                proc.kill()
+                await proc.wait()
+            except Exception:
+                pass
+            raise
+
+        return "".join(accumulated)
+
     async def _typewriter(self, text: str) -> None:
         for i in range(0, len(text), _TYPEWRITER_CHUNK):
             await self._response_queue.put(text[i : i + _TYPEWRITER_CHUNK])

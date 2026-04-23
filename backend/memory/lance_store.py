@@ -69,6 +69,43 @@ class LanceStore:
         }
         await loop.run_in_executor(None, lambda: self._table.add([row]))
 
+    async def search_scoped(
+        self,
+        query: str,
+        session_ids: list[str] | None = None,
+        limit: int = 10,
+    ) -> list[MemoryRecord]:
+        """
+        Semantic search, optionally filtered to a list of session IDs.
+        session_ids=None means search all sessions (same as search()).
+        Pinned records surface first. Never raises — returns [] on error.
+        """
+        loop = asyncio.get_event_loop()
+        embedding = await self._embedder.embed(query)
+
+        def _search():
+            try:
+                count = self._table.count_rows()
+                if count == 0:
+                    return []
+                fetch_limit = min(limit * 5, count) if session_ids is not None else min(limit + 20, count)
+                rows = (
+                    self._table.search(embedding)
+                    .limit(fetch_limit)
+                    .to_list()
+                )
+                if session_ids is not None:
+                    sid_set = set(session_ids)
+                    rows = [r for r in rows if r.get("session_id") in sid_set]
+                rows.sort(key=lambda r: (not r.get("pinned", False), r.get("_distance", 0.0)))
+                return rows[:limit]
+            except Exception as e:
+                logger.error("LanceStore.search_scoped error: %s", e)
+                return []
+
+        rows = await loop.run_in_executor(None, _search)
+        return [_row_to_record(r) for r in rows]
+
     async def search(self, query: str, limit: int = 10) -> list[MemoryRecord]:
         loop = asyncio.get_event_loop()
         embedding = await self._embedder.embed(query)

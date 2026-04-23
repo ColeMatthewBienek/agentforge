@@ -1,29 +1,33 @@
+import { useEffect } from "react";
 import { Layout } from "@/components/layout/Layout";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { MemoryBrowser } from "@/components/memory/MemoryBrowser";
 import { AgentDashboard } from "@/components/agents/AgentDashboard";
+import { TaskQueue } from "@/components/tasks/TaskQueue";
 import { initSocket } from "@/lib/agentSocket";
+import { useAgentStore } from "@/store/agentStore";
 
-// Connect once at module load time — before any component mounts.
 initSocket();
 
 function PlaceholderView({ name }: { name: string }) {
   return (
     <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-      {name} — coming in Phase 2
+      {name} — coming soon
     </div>
   );
 }
 
 export default function App() {
+  const { activeView, setActiveView } = useAgentStore();
+
   return (
-    <Layout>
+    <Layout activeView={activeView} onNavigate={setActiveView}>
       {(view) => {
         switch (view) {
           case "chat":
             return <ChatPanel />;
           case "tasks":
-            return <PlaceholderView name="Task Queue" />;
+            return <TaskQueue />;
           case "agents":
             return <AgentDashboard />;
           case "schedule":

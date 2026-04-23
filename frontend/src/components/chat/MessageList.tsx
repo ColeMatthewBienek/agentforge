@@ -58,20 +58,46 @@ function timeAgo(iso: string): string {
   return `${Math.floor(m / 60)}h ago`;
 }
 
+type RecallResult = {
+  id: string;
+  role: string;
+  content: string;
+  created_at: string;
+  pinned: boolean;
+  session_id?: string;
+};
+
+function sessionTypeBadge(sessionId: string | undefined, planIds: Set<string>, taskIds: Set<string>) {
+  if (!sessionId) return null;
+  if (planIds.has(sessionId)) {
+    return <span className="font-mono px-1 py-0.5 rounded border text-[9px] border-purple-500/40 text-purple-400">plan</span>;
+  }
+  if (taskIds.has(sessionId)) {
+    return <span className="font-mono px-1 py-0.5 rounded border text-[9px] border-green-500/40 text-green-400">task</span>;
+  }
+  return <span className="font-mono px-1 py-0.5 rounded border text-[9px] border-blue-500/30 text-blue-400/70">chat</span>;
+}
+
 function RecallBubble({ content }: { content: string }) {
   let query = "";
-  let initialResults: Array<{ id: string; role: string; content: string; created_at: string; pinned: boolean }> = [];
+  let scope = "current";
+  let initialResults: RecallResult[] = [];
   try {
-    ({ query, results: initialResults } = JSON.parse(content));
+    ({ query, results: initialResults, scope } = JSON.parse(content) as { query: string; results: RecallResult[]; scope?: string });
   } catch {
     return null;
   }
 
   const [results, setResults] = useState(initialResults);
+  const buildSessions = useAgentStore((s) => s.buildSessions);
+  const activeTasks = useAgentStore((s) => s.activeTasks);
+
+  const planIds = new Set(buildSessions.map((s) => s.id));
+  const taskIds = new Set(activeTasks.map((t) => t.id));
 
   const pinRecord = async (id: string) => {
     await api.memory.pin(id);
-    setResults(prev => prev.map(r => r.id === id ? { ...r, pinned: true } : r));
+    setResults((prev) => prev.map((r) => r.id === id ? { ...r, pinned: true } : r));
   };
 
   return (
@@ -80,6 +106,9 @@ function RecallBubble({ content }: { content: string }) {
         <div className="px-3 py-2 bg-card border-b border-border flex items-center gap-2">
           <span className="text-muted-foreground font-mono">recall</span>
           <span className="text-foreground font-medium">{query}</span>
+          {scope && scope !== "current" && (
+            <span className="text-[9px] font-mono px-1 py-0.5 rounded border border-muted text-muted-foreground">{scope}</span>
+          )}
           <span className="ml-auto text-muted-foreground">{results.length} result{results.length !== 1 ? "s" : ""}</span>
         </div>
         {results.length === 0 ? (
@@ -95,7 +124,8 @@ function RecallBubble({ content }: { content: string }) {
                 {r.pinned ? "pin" : r.role === "user" ? "user" : "asst"}
               </span>
               <p className="flex-1 text-foreground leading-relaxed line-clamp-3">{r.content}</p>
-              <div className="flex items-center gap-2 shrink-0 ml-2">
+              <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                {sessionTypeBadge(r.session_id, planIds, taskIds)}
                 <span className="text-muted-foreground">{timeAgo(r.created_at)}</span>
                 {!r.pinned && (
                   <button

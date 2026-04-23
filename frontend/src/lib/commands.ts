@@ -41,8 +41,14 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   },
   {
     name: "recall",
-    description: "Semantic search across all stored memories",
-    args: "<query>",
+    description: "Semantic search across memories. Use --scope plan or --scope all to broaden.",
+    args: "<query> [--scope plan|all]",
+    clientOnly: false,
+  },
+  {
+    name: "plan",
+    description: "Decompose a direction into parallel agent tasks",
+    args: "<direction>",
     clientOnly: false,
   },
   {

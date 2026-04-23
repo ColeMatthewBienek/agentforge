@@ -35,6 +35,25 @@ async def search_memories(request: Request, q: str, limit: int = 20):
     return {"records": [_serialize(r) for r in records]}
 
 
+@router.get("/search_scoped")
+async def search_memories_scoped(
+    request: Request,
+    q: str,
+    session_ids: str = "",
+    limit: int = 20,
+):
+    """
+    Semantic search filtered to specific session IDs.
+    session_ids: comma-separated list. Empty string = search all.
+    """
+    store = _get_store(request)
+    sid_list: list[str] | None = None
+    if session_ids.strip():
+        sid_list = [s.strip() for s in session_ids.split(",") if s.strip()]
+    records = await store.search_scoped(q, session_ids=sid_list, limit=limit)
+    return {"records": [_serialize(r) for r in records]}
+
+
 @router.get("/session/{session_id}")
 async def session_memories(request: Request, session_id: str, limit: int = 50):
     store = _get_store(request)

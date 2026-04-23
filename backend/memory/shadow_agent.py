@@ -53,14 +53,20 @@ class ShadowAgent:
                 break
 
     async def shutdown(self) -> None:
-        """Flush pending writes then stop."""
-        await self._queue.join()
+        """Cancel the worker and discard any pending queue items. Never blocks on Ollama."""
         if self._worker_task:
             self._worker_task.cancel()
             try:
                 await self._worker_task
             except asyncio.CancelledError:
                 pass
+        # Drain remaining items so internal accounting stays consistent
+        while not self._queue.empty():
+            try:
+                self._queue.get_nowait()
+                self._queue.task_done()
+            except (asyncio.QueueEmpty, ValueError):
+                break
 
     async def _worker(self) -> None:
         while True:
