@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { useAgentStore } from "@/store/agentStore";
 import { useAgentStream } from "@/hooks/useAgentStream";
-import { sendInterrupt } from "@/lib/agentSocket";
+import { sendInterrupt, sendBuild } from "@/lib/agentSocket";
 import { MessageList } from "./MessageList";
 import { InputBar } from "./InputBar";
 import { AgentSelector } from "./AgentSelector";
@@ -15,7 +15,8 @@ const HELP_TEXT = `Available commands:
   /btw <note>         Inject context the agent sees but won't reply to
   /remember <text>    Pin a fact to memory — always surfaces in future context
   /recall <query>     Semantic search across all stored memories
-  /debug              Toggle memory isolation (disables context injection and shadow recording)`;
+  /debug              Toggle memory isolation (disables context injection and shadow recording)
+  /build <prompt>     Run prompt in a git worktree — isolated branch, cleaned up after`;
 
 export function ChatPanel() {
   const { messages, isStreaming, isDebugMode } = useAgentStore();
@@ -42,6 +43,7 @@ export function ChatPanel() {
         case "clear":
         case "new":
           store.clearMessages();
+          sendCommand("new_session", "");
           break;
         case "help":
           store.addMessage("agent", HELP_TEXT);
@@ -107,6 +109,19 @@ export function ChatPanel() {
           }
           break;
         }
+        case "build": {
+          const prompt = args.trim();
+          if (!prompt) {
+            store.addMessage("agent", "Usage: /build <prompt>");
+            store.finalizeLastAgentMessage();
+          } else {
+            store.addMessage("user", `/build ${prompt}`);
+            store.addMessage("agent", "");
+            store.setStreaming(true);
+            sendBuild(prompt);
+          }
+          break;
+        }
         case "debug": {
           const newMode = !store.isDebugMode;
           store.setDebugMode(newMode);
@@ -140,7 +155,7 @@ export function ChatPanel() {
       <div className="flex items-center justify-between border-b border-border">
         <AgentSelector />
         <button
-          onClick={() => useAgentStore.getState().clearMessages()}
+          onClick={() => { useAgentStore.getState().clearMessages(); sendCommand("new_session", ""); }}
           className="mr-4 text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
           New Session

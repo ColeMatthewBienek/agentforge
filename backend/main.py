@@ -21,6 +21,8 @@ from backend.memory.memory_manager import MemoryManager
 from backend.memory.curator import MemoryCurator
 from backend.agents.claude_agent import ClaudeAgent
 from backend.pool.agent_pool import AgentPool, run_health_monitor
+from backend.pool.workdir import WorkdirManager
+from backend.orchestrator.executor import TaskExecutor
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -66,7 +68,12 @@ async def lifespan(app: FastAPI):
     app.state.agent_pool = agent_pool
     ws._agent_pool = agent_pool
 
-    # 7. Health monitor background task
+    # 7. WorkdirManager + TaskExecutor — inject into ws module
+    workdir_manager = WorkdirManager()
+    executor = TaskExecutor(pool=agent_pool, workdir_manager=workdir_manager)
+    ws._executor = executor
+
+    # 8. Health monitor background task
     health_task = asyncio.create_task(
         run_health_monitor(agent_pool, interval=HEALTH_CHECK_INTERVAL_SECONDS)
     )

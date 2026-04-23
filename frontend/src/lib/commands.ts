@@ -56,6 +56,12 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     description: "Toggle memory isolation — disables context injection and shadow recording",
     clientOnly: false,
   },
+  {
+    name: "build",
+    description: "Run a prompt in a git worktree — isolated branch, cleaned up after",
+    args: "<prompt>",
+    clientOnly: false,
+  },
 ];
 
 /** Parse raw input like "/cwd /home/user/project" → { name, args } */

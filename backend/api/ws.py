@@ -55,6 +55,7 @@ _agent_lock = asyncio.Lock()
 # Set by main.py lifespan after subsystems initialize
 _memory_manager = None
 _agent_pool = None
+_executor = None
 
 
 async def get_or_start_agent() -> ClaudeAgent:
@@ -198,6 +199,10 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
                             ],
                         })
 
+                elif name == "new_session":
+                    agent.reset_session()
+                    await websocket.send_json({"type": "session_reset"})
+
                 elif name == "set_debug":
                     debug_mode = args.strip().lower() == "true"
                     await websocket.send_json({"type": "debug_toggled", "enabled": debug_mode})
@@ -217,6 +222,58 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
                 else:
                     tasks = [t for t in msg.get("tasks", []) if isinstance(t, dict)]
                     await handle_parallel_dispatch(tasks, websocket, _agent_pool)
+                continue
+
+            # ── Build (worktree-isolated, same agent thread + memory) ──────────
+            if msg_type == "build":
+                if _executor is None:
+                    await websocket.send_json({"type": "error", "message": "Executor not available"})
+                    continue
+                raw_build_prompt = str(msg.get("prompt", "")).strip()
+                base_dir = str(msg.get("base_dir", str(agent.workdir))).strip()
+                task_id = str(msg.get("task_id", session_id)).strip()
+                if not raw_build_prompt:
+                    await websocket.send_json({"type": "error", "message": "build requires a prompt"})
+                    continue
+                if current_stream_task and not current_stream_task.done():
+                    await websocket.send_json({"type": "error", "message": "Agent is busy"})
+                    continue
+
+                # Memory / context — same path as regular prompts
+                build_prompt = raw_build_prompt
+                if _memory_manager and not debug_mode:
+                    build_prompt = await _memory_manager.build_context(raw_build_prompt, session_id=session_id)
+                if _memory_manager and not debug_mode:
+                    await _memory_manager.on_message(role="user", content=raw_build_prompt, session_id=session_id)
+
+                orig_workdir = agent.workdir
+
+                async def _do_build_stream(
+                    prompt=build_prompt,
+                    raw=raw_build_prompt,
+                    base_dir=base_dir,
+                    task_id=task_id,
+                    orig_wd=orig_workdir,
+                    is_debug=debug_mode,
+                ):
+                    workdir = Path(base_dir)
+                    try:
+                        workdir = await _executor._workdir_manager.create(task_id, base_dir)
+                        agent.workdir = workdir
+                        if workdir != Path(base_dir):
+                            await websocket.send_json({
+                                "type": "chunk",
+                                "content": f"[worktree: agentforge/{task_id}]\n\n",
+                            })
+                        # Delegate to the standard stream path — handles streaming + memory saving
+                        await _do_stream(prompt, is_debug)
+                    except asyncio.CancelledError:
+                        raise
+                    finally:
+                        agent.workdir = orig_wd
+                        await _executor._workdir_manager.cleanup(task_id, base_dir)
+
+                current_stream_task = asyncio.create_task(_do_build_stream())
                 continue
 
             # ── Prompt ─────────────────────────────────────────────────────────

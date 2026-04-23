@@ -160,6 +160,16 @@ export function sendDebugSummarize(content: string) {
   _ws.send(JSON.stringify({ type: "command", name: "debug_summarize", args: content }));
 }
 
+export function sendBuild(prompt: string, baseDir?: string) {
+  if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
+  _ws.send(JSON.stringify({
+    type: "build",
+    prompt,
+    base_dir: baseDir,
+    task_id: `build-${Date.now()}`,
+  }));
+}
+
 export function getSessionId(): string {
   return SESSION_ID;
 }

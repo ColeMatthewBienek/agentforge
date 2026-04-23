@@ -14,11 +14,13 @@ _TYPEWRITER_DELAY = 0.016
 
 class ClaudeAgent(CLIAgent):
     """
-    Runs `claude --output-format stream-json --verbose --print -` per message,
-    passing the prompt via stdin. This avoids shell argument parsing issues
-    (e.g. prompts starting with dashes being treated as flags) and correctly
-    handles multi-line prompts from memory context injection.
+    Runs `claude --output-format stream-json --verbose --print -` per message.
+    Uses --resume <session_id> on subsequent calls to maintain conversation continuity.
     """
+
+    def __init__(self, slot_id: int, workdir: Path) -> None:
+        super().__init__(slot_id, workdir)
+        self._claude_session_id: str | None = None
 
     @property
     def name(self) -> str:
@@ -26,7 +28,17 @@ class ClaudeAgent(CLIAgent):
 
     @property
     def cmd(self) -> list[str]:
-        return ["claude", "--output-format", "stream-json", "--verbose", "--print", "-"]
+        cmd = [
+            "claude",
+            "--output-format", "stream-json",
+            "--verbose",
+            "--print",
+            "--dangerously-skip-permissions",
+        ]
+        if self._claude_session_id:
+            cmd += ["--resume", self._claude_session_id]
+        cmd += ["-"]
+        return cmd
 
     @property
     def prompt_pattern(self) -> re.Pattern[str]:
@@ -36,11 +48,14 @@ class ClaudeAgent(CLIAgent):
         self.status = "idle"
         self._ready.set()
 
+    def reset_session(self) -> None:
+        """Clear the stored claude session ID — starts a fresh conversation."""
+        self._claude_session_id = None
+
     async def send(self, prompt: str) -> None:
         if self.status == "busy":
             raise RuntimeError("Agent is busy")
 
-        # Kill any previous subprocess
         await self._kill_subprocess()
 
         while not self._response_queue.empty():
@@ -57,7 +72,6 @@ class ClaudeAgent(CLIAgent):
             cwd=str(self.workdir),
         )
 
-        # Write prompt to stdin and close it so claude knows input is done
         encoded = prompt.encode("utf-8")
         self._process.stdin.write(encoded)
         await self._process.stdin.drain()
@@ -69,7 +83,6 @@ class ClaudeAgent(CLIAgent):
         proc = self._process
         if proc is None:
             return
-        # Handle both asyncio.Process and legacy ptyprocess
         try:
             if hasattr(proc, "returncode") and proc.returncode is None:
                 proc.kill()
@@ -100,6 +113,7 @@ class ClaudeAgent(CLIAgent):
 
     async def kill(self) -> None:
         await self._kill_subprocess()
+        self._claude_session_id = None
         self.status = "stopped"
 
     async def _read_json_stream(self) -> None:
@@ -113,6 +127,11 @@ class ClaudeAgent(CLIAgent):
                     event = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+
+                # Capture session ID from any event so --resume works next call
+                sid = event.get("session_id")
+                if sid:
+                    self._claude_session_id = sid
 
                 etype = event.get("type")
 
