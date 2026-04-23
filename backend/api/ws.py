@@ -307,14 +307,27 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
                                 ),
                             })
 
+                        # Remap task IDs to be globally unique — decomposer uses
+                        # relative IDs like "task-1" that collide across plan sessions.
+                        prefix = plan_session_id[:8]
+                        id_map = {t.id: f"{prefix}-{t.id}" for t in plan_tasks}
+                        for task in plan_tasks:
+                            task.id = id_map[task.id]
+                            task.dependencies = [id_map.get(d, d) for d in task.dependencies]
+                            task.session_id = plan_session_id
+
                         if _db:
+                            # task_count committed separately so it lands even if task INSERTs fail
                             try:
                                 await _db.execute(
                                     "UPDATE build_sessions SET task_count = ? WHERE id = ?",
                                     (len(plan_tasks), plan_session_id),
                                 )
+                                await _db.commit()
+                            except Exception as e:
+                                logger.warning("Failed to update task count: %s", e)
+                            try:
                                 for task in plan_tasks:
-                                    task.session_id = plan_session_id
                                     await _db.execute(
                                         "INSERT INTO build_tasks "
                                         "(id, session_id, title, prompt, dependencies, complexity, status, created_at) "
@@ -330,6 +343,9 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
                             "type": "chunk",
                             "content": f"Spawning {len(plan_tasks)} task{'s' if len(plan_tasks) != 1 else ''}...\n",
                         })
+                        # done finalizes the chat message and re-enables the input bar.
+                        # Task execution continues independently via task_chunk/task_update events.
+                        await websocket.send_json({"type": "done"})
 
                         asyncio.create_task(
                             _task_graph_executor.execute(

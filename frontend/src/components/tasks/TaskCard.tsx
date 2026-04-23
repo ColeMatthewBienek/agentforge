@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { useAgentStore, type TaskSpec } from "@/store/agentStore";
+import { api } from "@/lib/api";
 import { TaskDetail } from "./TaskDetail";
 
 const STATUS_STYLES: Record<string, string> = {
@@ -42,10 +43,17 @@ interface TaskCardProps {
 
 export function TaskCard({ task, allTasks }: TaskCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const updateTask = useAgentStore((s) => s.updateTask);
 
   const handleCancel = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    await fetch(`/api/tasks/${task.id}`, { method: "DELETE" });
+    try {
+      await api.del(`/api/tasks/${task.id}`);
+      updateTask({ id: task.id, status: "cancelled" });
+    } catch {
+      // 400 = task already finished; sync the store to reflect reality
+      updateTask({ id: task.id, status: "error" });
+    }
   };
 
   const depTasks = task.dependencies.map((dep) => allTasks.find((t) => t.id === dep)).filter(Boolean) as TaskSpec[];

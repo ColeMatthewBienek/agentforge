@@ -90,12 +90,15 @@ interface AgentStore {
   setDebugMode: (v: boolean) => void;
   clearDebugSession: () => void;
 
+  draftInput: string;
+  setDraftInput: (s: string) => void;
   setActiveView: (view: string) => void;
   setPlanSession: (id: string | null) => void;
   addBuildSession: (s: BuildSession) => void;
   setTaskGraph: (session_id: string, tasks: TaskSpec[]) => void;
   updateTask: (task: Partial<TaskSpec> & { id: string }) => void;
   appendTaskChunk: (task_id: string, content: string) => void;
+  clearActivePlan: () => void;
   planSessionWarnings: Record<string, string>;
   markPlanSessionWarning: (session_id: string, error: string) => void;
 }
@@ -114,6 +117,8 @@ export const useAgentStore = create<AgentStore>((set) => ({
   isDebugMode: false,
   debugSessionMessages: [],
 
+  draftInput: "",
+  setDraftInput: (s) => set({ draftInput: s }),
   activeView: "chat",
   activePlanSessionId: null,
   buildSessions: [],
@@ -197,6 +202,7 @@ export const useAgentStore = create<AgentStore>((set) => ({
         [task_id]: (state.taskChunks[task_id] ?? "") + content,
       },
     })),
+  clearActivePlan: () => set({ activeTasks: [], taskChunks: {} }),
   markPlanSessionWarning: (session_id, error) =>
     set((state) => ({
       planSessionWarnings: { ...state.planSessionWarnings, [session_id]: error },

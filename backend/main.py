@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,6 +41,19 @@ async def lifespan(app: FastAPI):
     db = await open_db(DB_PATH)
     app.state.db = db
     ws._db = db
+
+    # Mark any sessions/tasks left running from a previous server instance
+    _now_iso = datetime.now(timezone.utc).isoformat()
+    await db.execute(
+        "UPDATE build_sessions SET status='error', completed_at=? WHERE status='running'",
+        (_now_iso,),
+    )
+    await db.execute(
+        "UPDATE build_tasks SET status='error', error='Server restarted', completed_at=? "
+        "WHERE status IN ('running','pending')",
+        (_now_iso,),
+    )
+    await db.commit()
 
     # 2. LanceDB store
     embedder = Embedder()
@@ -144,3 +159,10 @@ async def shutdown():
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/ping")
+async def ping():
+    start = time.time()
+    elapsed_ms = (time.time() - start) * 1000
+    return {"status": "pong", "elapsed_ms": elapsed_ms}

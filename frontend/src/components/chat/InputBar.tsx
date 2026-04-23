@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, type KeyboardEvent } from "react";
 import { cn } from "@/lib/utils";
 import { filterCommands, parseSlashCommand, type SlashCommand } from "@/lib/commands";
 import { SlashCommandMenu } from "./SlashCommandMenu";
+import { useAgentStore } from "@/store/agentStore";
 
 interface InputBarProps {
   onSend: (prompt: string) => void;
@@ -12,7 +13,8 @@ interface InputBarProps {
 }
 
 export function InputBar({ onSend, onCommand, onInterrupt, disabled, isDebugMode }: InputBarProps) {
-  const [value, setValue] = useState("");
+  const value = useAgentStore((s) => s.draftInput);
+  const setValue = useAgentStore((s) => s.setDraftInput);
   const [menuCommands, setMenuCommands] = useState<SlashCommand[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);

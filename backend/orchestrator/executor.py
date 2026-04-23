@@ -134,12 +134,37 @@ class TaskGraphExecutor:
 
         succeeded = sum(1 for t in tasks if t.status == "complete")
         total = len(tasks)
+
+        # Build a short human-readable summary of what the plan did
+        lines = []
+        for t in tasks:
+            icon = "✓" if t.status == "complete" else "✗"
+            loc = f" → `{t.worktree_path}`" if t.worktree_path else ""
+            lines.append(f"{icon} **{t.title}**{loc}")
+        summary_body = "\n".join(lines)
+        plan_summary = (
+            f"**Plan complete** — {succeeded}/{total} tasks succeeded.\n\n"
+            f"{summary_body}"
+        )
+
+        # Embed summary under the CHAT session so the main agent finds it on follow-up questions
+        if self._memory_manager:
+            try:
+                await self._memory_manager.on_message(
+                    role="assistant",
+                    content=plan_summary,
+                    session_id=chat_session_id,
+                )
+            except Exception as e:
+                logger.warning("Failed to embed plan summary into chat session: %s", e)
+
         await websocket.send_json({
             "type": "build_complete",
             "session_id": plan_session_id,
             "total": total,
             "succeeded": succeeded,
             "failed": total - succeeded,
+            "summary": plan_summary,
         })
 
         final_status = "complete" if succeeded == total else "error"
@@ -238,16 +263,15 @@ class TaskGraphExecutor:
             # Capture session ID so follow-up replies can --resume this conversation
             self._task_sessions[task.id] = getattr(slot.agent, "_claude_session_id", None)
 
-            if self._memory_manager and full_output:
+            # Embed task output under the PLAN session so it's retrievable as plan context.
+            # One embed per task (not two) — the "task complete" reference stub had no
+            # retrieval value and caused duplicate-looking entries in recent memories.
+            stripped = full_output.strip()
+            if self._memory_manager and len(stripped) >= 40:
                 try:
                     await self._memory_manager.on_message(
                         role="assistant",
-                        content=f"[Task: {task.title}]\n{full_output}",
-                        session_id=task.id,
-                    )
-                    await self._memory_manager.on_message(
-                        role="assistant",
-                        content=f"[Plan task complete: {task.title}] Output stored in session {task.id}.",
+                        content=f"[Task: {task.title}]\n{stripped}",
                         session_id=plan_session_id,
                     )
                 except Exception as e:

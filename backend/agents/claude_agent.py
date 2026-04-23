@@ -118,6 +118,7 @@ class ClaudeAgent(CLIAgent):
 
     async def _read_json_stream(self) -> None:
         response_sent = False
+        tool_used = False
         try:
             async for raw_line in self._process.stdout:
                 line = _strip_ansi(raw_line.decode("utf-8", errors="replace")).strip()
@@ -140,16 +141,25 @@ class ClaudeAgent(CLIAgent):
                         if block.get("type") == "text" and block.get("text"):
                             await self._typewriter(block["text"])
                             response_sent = True
+                        elif block.get("type") == "tool_use":
+                            tool_used = True
 
                 elif etype == "result":
                     if event.get("is_error"):
                         err = event.get("result") or event.get("subtype") or "Unknown error"
                         if not response_sent:
                             await self._response_queue.put(f"[Error] {err}")
-                    elif not response_sent:
-                        result = event.get("result", "")
+                    else:
+                        result = event.get("result", "").strip()
                         if result:
-                            await self._typewriter(result)
+                            if not response_sent:
+                                # Nothing streamed yet — show result as the full response
+                                await self._typewriter(result)
+                            elif tool_used:
+                                # Preamble was streamed but tools were used — the result
+                                # contains the completion notice the user needs to see.
+                                await self._response_queue.put("\n\n")
+                                await self._typewriter(result)
         except Exception as e:
             if not response_sent:
                 await self._response_queue.put(f"[Error] {e}")

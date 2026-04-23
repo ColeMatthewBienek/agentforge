@@ -31,6 +31,10 @@ function connect() {
     if (_ws !== ws) return;
     useAgentStore.getState().setConnectionStatus("connected");
     useAgentStore.getState().setCurrentSessionId(SESSION_ID);
+    // Any active plan from before the reconnect is stale — the backend
+    // marks those tasks as error on startup, so clear them from the store.
+    useAgentStore.getState().clearActivePlan();
+    useAgentStore.getState().setPlanSession(null);
   };
 
   ws.onmessage = (event: MessageEvent) => {
@@ -115,6 +119,7 @@ function connect() {
         break;
 
       case "build_started":
+        s.clearActivePlan();
         s.setPlanSession(data.session_id ?? null);
         s.setActiveView("tasks");
         if (data.session_id) {
@@ -149,6 +154,11 @@ function connect() {
 
       case "build_complete":
         s.setPlanSession(null);
+        s.clearActivePlan();
+        if (data.summary) {
+          s.addMessage("agent", data.summary as string);
+          s.finalizeLastAgentMessage();
+        }
         break;
 
       case "decomposer_error":

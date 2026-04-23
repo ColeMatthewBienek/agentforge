@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useAgentStore, type TaskSpec } from "@/store/agentStore";
 import { sendTaskInput } from "@/lib/agentSocket";
+import { api } from "@/lib/api";
 
 interface TaskDetailProps {
   task: TaskSpec;
@@ -18,9 +19,8 @@ export function TaskDetail({ task }: TaskDetailProps) {
 
   useEffect(() => {
     if ((task.status === "complete" || task.status === "error") && !chunks) {
-      fetch(`/api/tasks/${task.id}`)
-        .then((r) => r.json())
-        .then((d: { output?: string }) => setHistoricOutput(d.output ?? ""))
+      api.get<{ output?: string }>(`/api/tasks/${task.id}`)
+        .then((d) => setHistoricOutput(d.output ?? ""))
         .catch(() => setHistoricOutput(""));
     }
   }, [task.id, task.status, chunks]);

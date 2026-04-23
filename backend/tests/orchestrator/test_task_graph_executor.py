@@ -173,7 +173,7 @@ async def test_deadlock_detection_aborts_with_error_status():
 @pytest.mark.asyncio
 async def test_task_output_embedded_into_memory():
     """After a task completes, on_message is called for the task output."""
-    pool, slot, _ = _make_pool(chunks=["result text"])
+    pool, slot, _ = _make_pool(chunks=["result text: this is a long enough output to meet the minimum embed threshold"])
     mgr = _make_workdir()
     db = _make_db()
     ws = _make_ws()
@@ -193,3 +193,5 @@ async def test_task_output_embedded_into_memory():
     assert memory.on_message.await_count >= 1
     calls = [c.kwargs["content"] for c in memory.on_message.call_args_list]
     assert any("result text" in c for c in calls)
+    # All task embeds must be under plan session, not task session (avoids cancel_session race)
+    assert all(c.kwargs["session_id"] == "plan-1" for c in memory.on_message.call_args_list)

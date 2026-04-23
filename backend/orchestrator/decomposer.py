@@ -142,14 +142,14 @@ Direction to decompose:
         if not clean:
             return self._fallback(direction), "Claude returned an empty response"
 
-        if clean.startswith("```"):
-            clean = clean.split("\n", 1)[-1]
-        if clean.endswith("```"):
-            clean = clean.rsplit("```", 1)[0]
-        clean = clean.strip()
+        # Extract JSON from wherever it appears — Claude sometimes adds preamble text
+        # before the code fence. Try strategies in order of specificity.
+        candidate = self._extract_json(clean)
+        if candidate is None:
+            return self._fallback(direction), f"No JSON array found in Claude output (first 200 chars): {clean[:200]!r}"
 
         try:
-            parsed = json.loads(clean)
+            parsed = json.loads(candidate)
         except json.JSONDecodeError as e:
             return self._fallback(direction), f"Invalid JSON from Claude: {e}"
 
@@ -170,6 +170,36 @@ Direction to decompose:
                 complexity=str(item.get("complexity", "medium")),
             ))
         return tasks, None
+
+    @staticmethod
+    def _extract_json(text: str) -> str | None:
+        """Pull a JSON array out of text that may contain prose or code fences."""
+        import re
+
+        # 1. Fenced block anywhere: ```json [...] ``` or ``` [...] ```
+        fence = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", text, re.DOTALL)
+        if fence:
+            return fence.group(1).strip()
+
+        # 2. Bare array at start (original behavior)
+        stripped = text.strip()
+        if stripped.startswith("["):
+            return stripped
+
+        # 3. First '[' to matching ']' — handles preamble before bare array
+        start = text.find("[")
+        if start != -1:
+            # Walk forward to find the balanced closing bracket
+            depth = 0
+            for i, ch in enumerate(text[start:], start):
+                if ch == "[":
+                    depth += 1
+                elif ch == "]":
+                    depth -= 1
+                    if depth == 0:
+                        return text[start : i + 1]
+
+        return None
 
     def _fallback(self, direction: str) -> list[TaskSpec]:
         return [TaskSpec(
