@@ -24,10 +24,14 @@ from backend.memory.shadow_agent import ShadowAgent
 from backend.memory.memory_manager import MemoryManager
 from backend.memory.curator import MemoryCurator
 from backend.agents.claude_agent import ClaudeAgent
+from backend.agents.ollama_agent import OllamaAgent
 from backend.pool.agent_pool import AgentPool, run_health_monitor
 from backend.pool.workdir import WorkdirManager
 from backend.orchestrator.executor import TaskExecutor, TaskGraphExecutor
 from backend.orchestrator.decomposer import Decomposer
+from backend.orchestrator.project_planner import ProjectPlanner
+from backend.orchestrator.engineering_manager import EngineeringManager
+from backend.orchestrator.intellirouter import IntelliRouter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -53,6 +57,14 @@ async def lifespan(app: FastAPI):
         "WHERE status IN ('running','pending')",
         (_now_iso,),
     )
+    await db.execute(
+        "UPDATE projects SET status='error', updated_at=? WHERE status IN ('executing','decomposing','em_review')",
+        (_now_iso,),
+    )
+    await db.execute(
+        "UPDATE project_runs SET status='error', completed_at=? WHERE status='running'",
+        (_now_iso,),
+    )
     await db.commit()
 
     # 2. LanceDB store
@@ -72,7 +84,7 @@ async def lifespan(app: FastAPI):
     shadow_agent = ShadowAgent(store=store, embedder=embedder, broadcaster=broadcaster)
     await shadow_agent.start()
 
-    # 5. Memory manager — inject into app state and ws module
+    # 5. Memory manager
     memory_manager = MemoryManager(store=store, shadow_agent=shadow_agent)
     app.state.memory_manager = memory_manager
     ws._memory_manager = memory_manager
@@ -81,7 +93,7 @@ async def lifespan(app: FastAPI):
     curator = MemoryCurator(store=store, broadcaster=broadcaster)
     app.state.curator = curator
 
-    # 7. Agent pool — inject into app state and ws module
+    # 7. Agent pool
     agent_pool = AgentPool(
         agent_factory=lambda slot_id, workdir: ClaudeAgent(slot_id, workdir),
         workdir=SHARED_WORKSPACE,
@@ -91,7 +103,7 @@ async def lifespan(app: FastAPI):
     app.state.agent_pool = agent_pool
     ws._agent_pool = agent_pool
 
-    # 8. WorkdirManager + TaskExecutor (single-task /build) + TaskGraphExecutor (/plan)
+    # 8. WorkdirManager + executors
     workdir_manager = WorkdirManager()
     app.state.workdir_manager = workdir_manager
 
@@ -110,7 +122,22 @@ async def lifespan(app: FastAPI):
     app.state.task_graph_executor = task_graph_executor
     ws._task_graph_executor = task_graph_executor
 
-    # 9. Health monitor background task
+    # 9. OllamaAgent (project decomposition with Qwen)
+    ollama_agent = OllamaAgent(model="qwen3-coder:30b")
+    if not await ollama_agent.health_check():
+        logger.warning(
+            "OllamaAgent: qwen3-coder:30b not available — project decomposition disabled. "
+            "Run: ollama pull qwen3-coder:30b"
+        )
+    app.state.ollama_agent = ollama_agent
+    decomposer._ollama = ollama_agent  # inject into decomposer for project decomposition
+
+    # 10. Project orchestration subsystems
+    app.state.project_planner = ProjectPlanner(pool=agent_pool, memory_manager=memory_manager)
+    app.state.engineering_manager = EngineeringManager(pool=agent_pool, memory_manager=memory_manager)
+    app.state.intellirouter = IntelliRouter()
+
+    # 11. Health monitor background task
     health_task = asyncio.create_task(
         run_health_monitor(agent_pool, interval=HEALTH_CHECK_INTERVAL_SECONDS)
     )
@@ -126,6 +153,7 @@ async def lifespan(app: FastAPI):
     await agent_pool.shutdown_all()
     await shadow_agent.shutdown()
     await embedder.shutdown()
+    await ollama_agent.close()
     if ws._agent is not None:
         await ws._agent.kill()
     await db.close()
@@ -142,11 +170,13 @@ app.add_middleware(
 )
 
 from backend.api.tasks import router as tasks_router
+from backend.api.projects import router as projects_router
 
 app.include_router(ws.router)
 app.include_router(agents.router)
 app.include_router(memory_router.router)
 app.include_router(tasks_router)
+app.include_router(projects_router)
 
 
 @app.post("/api/shutdown")
@@ -163,6 +193,4 @@ async def health():
 
 @app.get("/api/ping")
 async def ping():
-    start = time.time()
-    elapsed_ms = (time.time() - start) * 1000
-    return {"status": "pong", "elapsed_ms": elapsed_ms}
+    return {"status": "pong", "ts": int(time.time())}

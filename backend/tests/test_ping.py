@@ -25,9 +25,9 @@ def test_ping_body_contains_status_pong(client):
     assert body.get("status") == "pong"
 
 
-def test_ping_elapsed_ms_is_non_negative_number(client):
+def test_ping_ts_is_positive_number(client):
     response = client.get("/api/ping")
     body = response.json()
-    elapsed = body.get("elapsed_ms")
-    assert isinstance(elapsed, (int, float))
-    assert elapsed >= 0
+    ts = body.get("ts")
+    assert isinstance(ts, (int, float))
+    assert ts > 0

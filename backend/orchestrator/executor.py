@@ -230,38 +230,84 @@ class TaskGraphExecutor:
                 except Exception:
                     pass
 
-            slot = await self._pool.acquire(task_id=task.id, task_title=task.title)
-            task.slot_id = slot.slot_id
-            slot.agent.workdir = worktree
-
+            # Route task to appropriate executor tier
+            from backend.orchestrator.intellirouter import IntelliRouter, ExecutorTier
+            routing = IntelliRouter().route(task)
+            logger.info("Task %s routed → %s (%s)", task.id, routing.tier.value, routing.reason)
             try:
-                await db.execute(
-                    "UPDATE build_tasks SET slot_id = ?, worktree_path = ? WHERE id = ?",
-                    (slot.slot_id, worktree_path, task.id),
-                )
-                await db.commit()
-            except Exception as e:
-                logger.warning("Failed to update task slot info %s: %s", task.id, e)
+                await websocket.send_json({
+                    "type": "task_routed",
+                    "task_id": task.id,
+                    "tier": routing.tier.value,
+                    "model": routing.model_name,
+                    "reason": routing.reason,
+                })
+            except Exception:
+                pass
 
-            await slot.agent.send(prompt)
             accumulated: list[str] = []
 
-            async for chunk in slot.agent.stream_output(idle_timeout=120.0):
-                accumulated.append(chunk)
-                await websocket.send_json({
-                    "type": "task_chunk",
-                    "task_id": task.id,
-                    "slot_id": slot.slot_id,
-                    "content": chunk,
-                })
+            if routing.tier == ExecutorTier.QWEN:
+                # OllamaAgent path — no pool slot needed
+                from backend.agents.ollama_agent import OllamaAgent
+                ollama = OllamaAgent(model=routing.model_name)
+                task.slot_id = "ollama"
+                try:
+                    full_output = await ollama.run_oneshot(prompt, timeout=180)
+                    for line in full_output.split("\n"):
+                        await websocket.send_json({
+                            "type": "task_chunk",
+                            "task_id": task.id,
+                            "slot_id": "ollama",
+                            "content": line + "\n",
+                        })
+                    accumulated = [full_output]
+                finally:
+                    await ollama.close()
+            else:
+                # Claude pool slot path
+                slot = await self._pool.acquire(task_id=task.id, task_title=task.title)
+                task.slot_id = slot.slot_id
+                slot.agent.workdir = worktree
+
+                try:
+                    await db.execute(
+                        "UPDATE build_tasks SET slot_id = ?, worktree_path = ? WHERE id = ?",
+                        (slot.slot_id, worktree_path, task.id),
+                    )
+                    await db.commit()
+                except Exception as e:
+                    logger.warning("Failed to update task slot info %s: %s", task.id, e)
+
+                # Start context injection polling alongside streaming
+                injection_task = asyncio.create_task(
+                    self._poll_injections(task, slot, db, websocket)
+                )
+
+                try:
+                    await slot.agent.send(prompt)
+                    async for chunk in slot.agent.stream_output(idle_timeout=120.0):
+                        accumulated.append(chunk)
+                        await websocket.send_json({
+                            "type": "task_chunk",
+                            "task_id": task.id,
+                            "slot_id": slot.slot_id,
+                            "content": chunk,
+                        })
+                finally:
+                    injection_task.cancel()
+                    try:
+                        await injection_task
+                    except asyncio.CancelledError:
+                        pass
+
+                # Capture session ID so follow-up replies can --resume
+                self._task_sessions[task.id] = getattr(slot.agent, "_claude_session_id", None)
 
             full_output = "".join(accumulated)
             task.output = full_output
             task.status = "complete"
             task.completed_at = _now()
-
-            # Capture session ID so follow-up replies can --resume this conversation
-            self._task_sessions[task.id] = getattr(slot.agent, "_claude_session_id", None)
 
             # Embed task output under the PLAN session so it's retrievable as plan context.
             # One embed per task (not two) — the "task complete" reference stub had no
@@ -340,4 +386,44 @@ class TaskGraphExecutor:
             "error": task.error,
             "created_at": task.created_at,
             "completed_at": task.completed_at,
+            "executor_tier": getattr(task, "executor_tier", None),
+            "acceptance_criteria": getattr(task, "acceptance_criteria", ""),
+            "em_notes": getattr(task, "em_notes", ""),
+            "kanban_column": getattr(task, "kanban_column", "backlog"),
         }
+
+    async def _poll_injections(self, task, slot, db, websocket) -> None:
+        """Polls for context injections every 5s and sends them to the running agent."""
+        while True:
+            await asyncio.sleep(5)
+            try:
+                rows = await db.execute_fetchall(
+                    "SELECT * FROM task_injections WHERE task_id = ? AND acknowledged_at IS NULL",
+                    (task.id,),
+                )
+                for row in rows:
+                    content = row["content"]
+                    injection_id = row["id"]
+                    try:
+                        await slot.agent.send(
+                            f"[CONTEXT INJECTION — additional information for your current task]\n"
+                            f"{content}\n"
+                            f"[Continue your current work incorporating this context]"
+                        )
+                        await websocket.send_json({
+                            "type": "task_injection_ack",
+                            "task_id": task.id,
+                            "injection_id": injection_id,
+                        })
+                    except Exception as e:
+                        logger.warning("Injection send failed for task %s: %s", task.id, e)
+                    now = datetime.now(timezone.utc).isoformat()
+                    await db.execute(
+                        "UPDATE task_injections SET acknowledged_at = ? WHERE id = ?",
+                        (now, injection_id),
+                    )
+                    await db.commit()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning("Injection poll error for task %s: %s", task.id, e)

@@ -99,6 +99,13 @@ interface AgentStore {
   updateTask: (task: Partial<TaskSpec> & { id: string }) => void;
   appendTaskChunk: (task_id: string, content: string) => void;
   clearActivePlan: () => void;
+
+  // Project orchestration
+  activeProjectId: string | null;
+  activeRunId: string | null;
+  projectKickBacks: string[];
+  setActiveProject: (projectId: string | null, runId: string | null) => void;
+  setProjectKickBacks: (questions: string[]) => void;
   planSessionWarnings: Record<string, string>;
   markPlanSessionWarning: (session_id: string, error: string) => void;
 }
@@ -203,6 +210,12 @@ export const useAgentStore = create<AgentStore>((set) => ({
       },
     })),
   clearActivePlan: () => set({ activeTasks: [], taskChunks: {} }),
+
+  activeProjectId: null,
+  activeRunId: null,
+  projectKickBacks: [],
+  setActiveProject: (projectId, runId) => set({ activeProjectId: projectId, activeRunId: runId }),
+  setProjectKickBacks: (questions) => set({ projectKickBacks: questions }),
   markPlanSessionWarning: (session_id, error) =>
     set((state) => ({
       planSessionWarnings: { ...state.planSessionWarnings, [session_id]: error },

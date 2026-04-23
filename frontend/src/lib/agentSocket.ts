@@ -72,6 +72,12 @@ function connect() {
       succeeded?: number;
       failed?: number;
       error?: string;
+      run_id?: string;
+      questions?: unknown[];
+      column?: string;
+      tier?: string;
+      model?: string;
+      reason?: string;
     };
 
     const s = useAgentStore.getState();
@@ -159,6 +165,23 @@ function connect() {
           s.addMessage("agent", data.summary as string);
           s.finalizeLastAgentMessage();
         }
+        break;
+
+      case "execution_started":
+        if (data.project_id && data.run_id) {
+          s.setActiveProject(data.project_id as string, data.run_id as string);
+          s.setActiveView("projects");
+        }
+        break;
+
+      case "em_kick_backs":
+        if (data.questions) {
+          s.setProjectKickBacks(data.questions as string[]);
+        }
+        break;
+
+      case "kanban_update":
+        // handled by ProjectWorkspace polling for now
         break;
 
       case "decomposer_error":

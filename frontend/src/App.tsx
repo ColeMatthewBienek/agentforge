@@ -4,6 +4,7 @@ import { ChatPanel } from "@/components/chat/ChatPanel";
 import { MemoryBrowser } from "@/components/memory/MemoryBrowser";
 import { AgentDashboard } from "@/components/agents/AgentDashboard";
 import { TaskQueue } from "@/components/tasks/TaskQueue";
+import { ProjectsView } from "@/components/projects/ProjectsView";
 import { initSocket } from "@/lib/agentSocket";
 import { useAgentStore } from "@/store/agentStore";
 
@@ -26,6 +27,8 @@ export default function App() {
         switch (view) {
           case "chat":
             return <ChatPanel />;
+          case "projects":
+            return <ProjectsView />;
           case "tasks":
             return <TaskQueue />;
           case "agents":

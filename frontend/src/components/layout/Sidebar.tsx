@@ -8,6 +8,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { icon: "💬", label: "Chat", id: "chat" },
+  { icon: "📁", label: "Projects", id: "projects" },
   { icon: "📋", label: "Tasks", id: "tasks" },
   { icon: "🤖", label: "Agents", id: "agents" },
   { icon: "⏰", label: "Schedule", id: "schedule" },

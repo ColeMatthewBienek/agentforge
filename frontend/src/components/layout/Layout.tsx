@@ -4,6 +4,7 @@ import { TopBar } from "./TopBar";
 
 const VIEW_TITLES: Record<string, string> = {
   chat: "Chat",
+  projects: "Projects",
   tasks: "Task Queue",
   agents: "Agents",
   schedule: "Schedule",
