@@ -24,6 +24,7 @@ from backend.memory.shadow_agent import ShadowAgent
 from backend.memory.memory_manager import MemoryManager
 from backend.memory.curator import MemoryCurator
 from backend.agents.claude_agent import ClaudeAgent
+from backend.api import inbox as inbox_module
 from backend.agents.ollama_agent import OllamaAgent
 from backend.pool.agent_pool import AgentPool, run_health_monitor
 from backend.pool.workdir import WorkdirManager
@@ -37,6 +38,21 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 logger = logging.getLogger(__name__)
 
 
+class _SuppressPollingRoutes(logging.Filter):
+    """Drop noisy 200 OK access-log lines for high-frequency polling endpoints."""
+    _MUTED = ("/api/inbox/drain", "/api/health")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(
+            path in msg and "200" in msg
+            for path in self._MUTED
+        )
+
+
+logging.getLogger("uvicorn.access").addFilter(_SuppressPollingRoutes())
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("AgentForge backend starting up")
@@ -45,6 +61,7 @@ async def lifespan(app: FastAPI):
     db = await open_db(DB_PATH)
     app.state.db = db
     ws._db = db
+    inbox_module._db = db
 
     # Mark any sessions/tasks left running from a previous server instance
     _now_iso = datetime.now(timezone.utc).isoformat()
@@ -173,6 +190,7 @@ from backend.api.tasks import router as tasks_router
 from backend.api.projects import router as projects_router
 
 app.include_router(ws.router)
+app.include_router(inbox_module.router)
 app.include_router(agents.router)
 app.include_router(memory_router.router)
 app.include_router(tasks_router)

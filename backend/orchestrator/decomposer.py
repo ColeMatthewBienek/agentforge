@@ -80,6 +80,16 @@ class Decomposer:
                     "Decomposer parse failed for '%s': %s\nRaw:\n%s",
                     direction[:80], parse_error, raw_output[:2000],
                 )
+                try:
+                    from backend.api.inbox import inbox_write
+                    await inbox_write(
+                        "decomposer",
+                        f"❌ Decomposer failed: {parse_error}",
+                        priority="urgent",
+                        session_id=chat_session_id,
+                    )
+                except Exception:
+                    pass
             else:
                 logger.info("Decomposed '%s' into %d tasks", direction[:60], len(tasks))
                 if self._memory_manager and tasks:
@@ -100,6 +110,16 @@ class Decomposer:
                 f"Direction: {direction[:200]}\nFalling back to single-task execution."
             )
             logger.error("Decomposer timeout for '%s'", direction[:80])
+            try:
+                from backend.api.inbox import inbox_write
+                await inbox_write(
+                    "decomposer",
+                    "⏱ Decomposer timed out — running as single task",
+                    priority="urgent",
+                    session_id=chat_session_id,
+                )
+            except Exception:
+                pass
             return self._fallback(direction), decomposer_error
 
         except Exception as e:

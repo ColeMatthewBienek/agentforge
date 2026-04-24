@@ -1,7 +1,9 @@
 import { useCallback } from "react";
+import { cn } from "@/lib/utils";
 import { useAgentStore } from "@/store/agentStore";
 import { useAgentStream } from "@/hooks/useAgentStream";
 import { sendInterrupt, sendBuild } from "@/lib/agentSocket";
+import { toast } from "sonner";
 import { MessageList } from "./MessageList";
 import { InputBar } from "./InputBar";
 import { AgentSelector } from "./AgentSelector";
@@ -45,6 +47,7 @@ export function ChatPanel() {
         case "new":
           store.clearMessages();
           sendCommand("new_session", "");
+          toast.dismiss();
           break;
         case "help":
           store.addMessage("agent", HELP_TEXT);
@@ -164,19 +167,55 @@ export function ChatPanel() {
     [sendCommand, sendDispatch]
   );
 
+  const contextPanelVisible = useAgentStore((s) => s.contextPanelVisible);
+  const { selectedAgent, currentSessionId } = useAgentStore();
+
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between border-b border-border">
-        <AgentSelector />
-        <button
-          onClick={() => { useAgentStore.getState().clearMessages(); sendCommand("new_session", ""); }}
-          className="mr-4 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          New Session
-        </button>
+      {/* Header */}
+      <div className="h-11 border-b border-[#21262d] flex items-center justify-between px-4 flex-shrink-0">
+        {/* Left: thread title + agent badge */}
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] font-semibold text-foreground">
+            {currentSessionId ? "Active session" : "New conversation"}
+          </span>
+          <span className="text-[10px] px-2 py-0.5 rounded font-mono border border-status-active/30 text-status-active bg-status-active/10">
+            {selectedAgent}
+          </span>
+        </div>
+        {/* Right: Context toggle + New Session */}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => useAgentStore.getState().toggleContextPanel()}
+            className={cn(
+              "flex items-center gap-1.5 px-2 py-1 rounded text-[11px] border transition-colors",
+              contextPanelVisible
+                ? "bg-secondary border-border text-muted-foreground"
+                : "bg-transparent border-[#21262d] text-[#484f58] hover:text-muted-foreground"
+            )}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <path d="M15 3v18" />
+            </svg>
+            Context
+          </button>
+          <button
+            onClick={() => { useAgentStore.getState().clearMessages(); sendCommand("new_session", ""); toast.dismiss(); }}
+            className="px-2 py-1 rounded text-[11px] border border-[#21262d] bg-transparent text-[#484f58] hover:text-muted-foreground transition-colors"
+          >
+            New Session
+          </button>
+        </div>
       </div>
       <MessageList messages={messages} />
-      <div className="flex items-center justify-end px-4 py-1 border-t border-border/50">
+      <div className="flex items-center justify-between px-4 py-1 border-t border-border/50">
+        <button
+          onClick={() => { useAgentStore.setState({ systemMessages: [] }); toast.dismiss(); }}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Clear notices
+        </button>
         <MemoryIndicator />
       </div>
       <InputBar

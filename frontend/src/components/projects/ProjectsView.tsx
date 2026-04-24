@@ -1,18 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { api, type Project } from "@/lib/api";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { ProjectPlanningModal } from "./ProjectPlanningModal";
 import { ProjectWorkspace } from "./ProjectWorkspace";
 
-const STATUS_STYLES: Record<string, string> = {
-  planning:    "border-blue-500/40 text-blue-400",
-  decomposing: "border-yellow-500/40 text-yellow-400",
-  em_review:   "border-yellow-500/40 text-yellow-400",
-  executing:   "border-green-500/40 text-green-400 bg-green-500/10",
-  paused:      "border-[#30363d] text-[#8b949e]",
-  complete:    "border-green-500/40 text-green-400",
-  error:       "border-red-500/40 text-red-400",
-};
+function FolderIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+    </svg>
+  );
+}
+
 
 function timeAgo(iso: string): string {
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -180,10 +180,10 @@ export function ProjectsView() {
 
   return (
     <div className="flex flex-col h-full bg-background">
-      <header className="px-6 py-4 border-b border-border flex items-center justify-between">
+      <header className="px-5 py-4 border-b border-[#21262d] flex items-center justify-between">
         <div>
-          <h1 className="text-base font-semibold text-foreground">Projects</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <h1 className="text-[14px] font-semibold text-foreground">Projects</h1>
+          <p className="text-[11px] text-[#484f58] mt-0.5">
             {loading ? "Loading…" : `${projects.length} project${projects.length !== 1 ? "s" : ""}`}
           </p>
         </div>
@@ -191,24 +191,24 @@ export function ProjectsView() {
           <button
             onClick={toggleArchived}
             className={cn(
-              "px-2.5 py-1 text-xs rounded border transition-colors",
+              "px-2.5 py-1 text-[12px] rounded border transition-colors",
               showArchived
                 ? "border-accent/40 text-accent bg-accent/10"
-                : "border-[#30363d] text-muted-foreground hover:text-foreground"
+                : "border-[#21262d] text-[#484f58] hover:text-muted-foreground"
             )}
           >
             {showArchived ? "Hide archived" : "Show archived"}
           </button>
           <button
             onClick={() => setShowModal(true)}
-            className="px-3 py-1.5 text-xs rounded-md border border-primary/40 text-primary hover:bg-primary/10 transition-colors"
+            className="px-3.5 py-1.5 text-[12px] rounded-md border border-primary/40 text-primary hover:bg-primary/10 transition-colors font-medium"
           >
             + New Project
           </button>
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-6 py-4">
+      <div className="flex-1 overflow-y-auto px-5 py-4">
         {!loading && projects.length === 0 && (
           <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
             <p className="text-sm">No projects yet.</p>
@@ -222,29 +222,27 @@ export function ProjectsView() {
             <div
               key={p.id}
               className={cn(
-                "relative rounded-lg border border-[#30363d] bg-[#161b22] hover:border-[#484f58] transition-colors group",
+                "relative rounded-lg border border-[#21262d] bg-background hover:border-[#484f58] transition-colors group",
                 p.archived_at && "opacity-60"
               )}
             >
               <button
                 onClick={() => { setMenuOpenId(null); setSelectedProject(p.id); }}
-                className="w-full text-left px-4 py-3 pr-12"
+                className="w-full text-left px-4 py-3 pr-12 flex items-center gap-3.5"
               >
-                <div className="flex items-center gap-3">
-                  <span className={cn(
-                    "text-[10px] font-mono px-1.5 py-0.5 rounded border shrink-0",
-                    p.archived_at
-                      ? "border-[#30363d] text-[#8b949e]"
-                      : STATUS_STYLES[p.status] ?? "border-[#30363d] text-[#8b949e]"
-                  )}>
-                    {p.archived_at ? "archived" : p.status}
-                  </span>
-                  <span className="flex-1 text-sm font-medium text-foreground">{p.name}</span>
-                  <span className="text-xs text-muted-foreground shrink-0">{timeAgo(p.updated_at)}</span>
+                <div className="w-9 h-9 rounded-lg bg-card border border-[#21262d] flex items-center justify-center flex-shrink-0 text-muted-foreground">
+                  <FolderIcon size={16} />
                 </div>
-                {p.description && (
-                  <p className="mt-1 text-xs text-muted-foreground pl-[72px] truncate">{p.description}</p>
-                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[13px] font-medium text-foreground">{p.name}</span>
+                    <StatusBadge status={p.archived_at ? "archived" : p.status} />
+                  </div>
+                  {p.description && (
+                    <p className="text-[11px] text-[#484f58] mt-0.5 truncate">{p.description}</p>
+                  )}
+                </div>
+                <span className="text-[11px] text-[#484f58] flex-shrink-0">{timeAgo(p.updated_at)}</span>
               </button>
 
               {/* ··· menu button */}

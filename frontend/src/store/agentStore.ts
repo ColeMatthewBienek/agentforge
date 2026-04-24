@@ -3,6 +3,14 @@ import { generateId } from "@/lib/utils";
 
 export type MessageRole = "user" | "agent" | "note" | "recall" | "debug_prompt";
 
+export interface SystemMessage {
+  id: string;
+  from_source: string;
+  priority: "urgent" | "high" | "normal";
+  content: string;
+  created_at: string;
+}
+
 export interface Message {
   id: string;
   role: MessageRole;
@@ -92,6 +100,13 @@ interface AgentStore {
 
   draftInput: string;
   setDraftInput: (s: string) => void;
+
+  systemMessages: SystemMessage[];
+  injectSystemMessage: (msg: SystemMessage) => void;
+
+  contextPanelVisible: boolean;
+  toggleContextPanel: () => void;
+  setContextPanelVisible: (v: boolean) => void;
   setActiveView: (view: string) => void;
   setPlanSession: (id: string | null) => void;
   addBuildSession: (s: BuildSession) => void;
@@ -126,7 +141,15 @@ export const useAgentStore = create<AgentStore>((set) => ({
 
   draftInput: "",
   setDraftInput: (s) => set({ draftInput: s }),
-  activeView: "chat",
+
+  systemMessages: [],
+  injectSystemMessage: (msg) =>
+    set((state) => ({ systemMessages: [...state.systemMessages, msg] })),
+
+  contextPanelVisible: false,
+  toggleContextPanel: () => set((state) => ({ contextPanelVisible: !state.contextPanelVisible })),
+  setContextPanelVisible: (v) => set({ contextPanelVisible: v }),
+  activeView: "home",
   activePlanSessionId: null,
   buildSessions: [],
   activeTasks: [],
@@ -169,7 +192,7 @@ export const useAgentStore = create<AgentStore>((set) => ({
   setStreaming: (v) => set({ isStreaming: v }),
   setConnectionStatus: (s) => set({ connectionStatus: s }),
   setSelectedAgent: (name) => set({ selectedAgent: name }),
-  clearMessages: () => set({ messages: [], contextNotes: [] }),
+  clearMessages: () => set({ messages: [], contextNotes: [], systemMessages: [] }),
   addContextNote: (note) =>
     set((state) => ({ contextNotes: [...state.contextNotes, note] })),
   setMemoryStatus: (s) => set({ memoryStatus: s }),

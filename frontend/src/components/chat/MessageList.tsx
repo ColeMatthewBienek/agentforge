@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { useAgentStore, type Message } from "@/store/agentStore";
+import { useAgentStore, type Message, type SystemMessage } from "@/store/agentStore";
 import { sendDebugSummarize } from "@/lib/agentSocket";
 import { api } from "@/lib/api";
 
@@ -8,14 +8,44 @@ interface MessageListProps {
   messages: Message[];
 }
 
+const SYSTEM_STYLES: Record<SystemMessage["priority"], string> = {
+  urgent: "border-l-4 border-red-500 bg-red-950/20 text-red-300",
+  high:   "border-l-4 border-yellow-500 bg-yellow-950/20 text-yellow-300",
+  normal: "border-l-4 border-gray-700 bg-gray-900/30 text-gray-500",
+};
+
+function SystemMessageBubble({ msg }: { msg: SystemMessage }) {
+  return (
+    <div className={cn("mx-0 my-1 px-3 py-2 rounded text-xs font-mono", SYSTEM_STYLES[msg.priority])}>
+      <span className="opacity-50 mr-2">[{msg.from_source}]</span>
+      {msg.content}
+    </div>
+  );
+}
+
 export function MessageList({ messages }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const systemMessages = useAgentStore((s) => s.systemMessages);
+
+  // Merge chat messages and system messages by timestamp for interleaving
+  type ChatItem =
+    | { kind: "chat"; ts: number; msg: Message }
+    | { kind: "system"; ts: number; msg: SystemMessage };
+
+  const items: ChatItem[] = [
+    ...messages.map((m) => ({ kind: "chat" as const, ts: m.timestamp.getTime(), msg: m })),
+    ...systemMessages.map((m) => ({
+      kind: "system" as const,
+      ts: new Date(m.created_at).getTime(),
+      msg: m,
+    })),
+  ].sort((a, b) => a.ts - b.ts);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [items.length]);
 
-  if (messages.length === 0) {
+  if (items.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
         Start a conversation with the Claude agent.
@@ -25,28 +55,32 @@ export function MessageList({ messages }: MessageListProps) {
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-      {messages.map((msg) => (
-        <MessageBubble key={msg.id} message={msg} />
-      ))}
+      {items.map((item) =>
+        item.kind === "system" ? (
+          <SystemMessageBubble key={`sys-${item.msg.id}`} msg={item.msg} />
+        ) : (
+          <MessageBubble key={item.msg.id} message={item.msg} />
+        )
+      )}
       <div ref={bottomRef} />
     </div>
   );
 }
 
 function ThinkingDots() {
+  const selectedAgent = useAgentStore((s) => s.selectedAgent);
   return (
-    <span className="inline-flex items-center gap-1">
-      <span className="text-muted-foreground italic text-xs">thinking</span>
-      <span className="flex gap-0.5 items-end pb-0.5">
-        {[0, 1, 2].map((i) => (
-          <span
-            key={i}
-            className="w-1 h-1 rounded-full bg-muted-foreground/60"
-            style={{ animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite` }}
-          />
+    <div className="flex gap-2.5 items-center">
+      <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-[12px] text-status-active flex-shrink-0">
+        ⬡
+      </div>
+      <div className="flex gap-1 items-center">
+        {([0.8, 0.5, 0.3] as number[]).map((op, i) => (
+          <div key={i} className="w-1.5 h-1.5 rounded-full bg-status-active" style={{ opacity: op }} />
         ))}
-      </span>
-    </span>
+        <span className="text-[11px] text-[#484f58] ml-1.5">{selectedAgent} is typing...</span>
+      </div>
+    </div>
   );
 }
 
@@ -217,7 +251,7 @@ function MessageBubble({ message }: { message: Message }) {
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[70%] bg-accent/20 border border-accent/30 rounded-lg px-4 py-2 text-sm text-foreground whitespace-pre-wrap">
+        <div className="max-w-[65%] px-3.5 py-2.5 rounded-[12px_12px_4px_12px] bg-accent/10 border border-accent/20 text-[13px] text-foreground leading-relaxed whitespace-pre-wrap">
           {message.content}
         </div>
       </div>
@@ -227,12 +261,12 @@ function MessageBubble({ message }: { message: Message }) {
   const isEmpty = !message.content;
 
   return (
-    <div className="flex justify-start">
-      <div className="flex gap-3 max-w-[90%]">
-        <div className="w-6 h-6 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center text-xs flex-shrink-0 mt-0.5">
-          ⬡
-        </div>
-        <div className="agent-output bg-card border border-border rounded-lg px-4 py-3 text-foreground text-sm flex-1 min-w-0">
+    <div className="flex justify-start gap-2.5">
+      <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-[12px] text-status-active flex-shrink-0 mt-0.5">
+        ⬡
+      </div>
+      <div className="flex flex-col gap-2 max-w-[75%]">
+        <div className="agent-output text-[13px] text-[#c9d1d9] leading-[1.55] flex-1 min-w-0">
           {isEmpty ? (
             <ThinkingDots />
           ) : (

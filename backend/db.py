@@ -82,6 +82,21 @@ CREATE TABLE IF NOT EXISTS em_review_log (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS inbox_messages (
+    id          TEXT    PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    from_source TEXT    NOT NULL,
+    priority    TEXT    NOT NULL DEFAULT 'normal'
+                        CHECK(priority IN ('urgent','high','normal')),
+    message     TEXT    NOT NULL,
+    data        TEXT,
+    session_id  TEXT,
+    handled     INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_inbox_unhandled
+    ON inbox_messages(handled, created_at);
+
 CREATE TABLE IF NOT EXISTS task_injections (
     id TEXT PRIMARY KEY,
     task_id TEXT NOT NULL,

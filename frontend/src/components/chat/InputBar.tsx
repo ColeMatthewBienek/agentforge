@@ -4,6 +4,14 @@ import { filterCommands, parseSlashCommand, type SlashCommand } from "@/lib/comm
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { useAgentStore } from "@/store/agentStore";
 
+function PlusIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
+
 interface InputBarProps {
   onSend: (prompt: string) => void;
   onCommand: (name: string, args: string) => void;
@@ -104,8 +112,10 @@ export function InputBar({ onSend, onCommand, onInterrupt, disabled, isDebugMode
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   };
 
+  const selectedAgent = useAgentStore((s) => s.selectedAgent);
+
   return (
-    <div className="px-4 py-3 border-t border-border bg-background">
+    <div className="px-4 py-3 pb-4 border-t border-[#21262d] flex-shrink-0">
       <div className="relative">
         {menuCommands.length > 0 && (
           <SlashCommandMenu
@@ -114,51 +124,50 @@ export function InputBar({ onSend, onCommand, onInterrupt, disabled, isDebugMode
             onSelect={selectCommand}
           />
         )}
-        <div className="flex gap-2 items-end bg-secondary border border-border rounded-lg px-3 py-2 focus-within:border-ring transition-colors">
+        <div className="rounded-[10px] border border-border bg-card flex items-end px-3.5 py-1 pr-1 focus-within:border-[#484f58] transition-colors">
+          <span className="text-[#484f58] mb-2.5 flex-shrink-0">
+            <PlusIcon size={16} />
+          </span>
           <textarea
             ref={textareaRef}
             value={value}
             onChange={(e) => handleChange(e.target.value)}
             onKeyDown={handleKeyDown}
             onInput={handleInput}
-            placeholder={disabled ? "Agent is responding..." : "Message Claude (/ for commands)"}
+            placeholder={disabled ? "Agent is responding..." : `Message ${selectedAgent}, or /command...`}
             disabled={disabled}
             rows={1}
             className={cn(
-              "flex-1 bg-transparent text-foreground text-sm resize-none outline-none placeholder:text-muted-foreground font-mono",
-              "min-h-[1.5rem] max-h-[200px]",
+              "flex-1 bg-transparent text-[13px] text-foreground placeholder:text-[#484f58] resize-none outline-none py-2 px-2.5",
+              "min-h-[20px] max-h-40",
               disabled && "opacity-50 cursor-not-allowed"
             )}
           />
-          {isDebugMode && (
-            <span className="flex-shrink-0 px-2 py-0.5 rounded text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/40 select-none">
-              DEBUG
-            </span>
-          )}
-          {disabled ? (
-            <button
-              onClick={onInterrupt}
-              className="flex-shrink-0 px-3 py-1.5 rounded-md text-sm font-medium transition-colors bg-red-500/20 text-red-400 border border-red-500/40 hover:bg-red-500/30"
-            >
-              Stop
-            </button>
-          ) : (
-            <button
-              onClick={handleSend}
-              disabled={!value.trim()}
-              className={cn(
-                "flex-shrink-0 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-                "bg-primary text-primary-foreground hover:bg-primary/90",
-                !value.trim() && "opacity-40 cursor-not-allowed"
-              )}
-            >
-              Send
-            </button>
-          )}
+          <div className="flex gap-1 items-center mb-1 mr-0.5">
+            {isDebugMode && (
+              <span className="px-2 py-0.5 rounded text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/40 select-none">
+                DEBUG
+              </span>
+            )}
+            <span className="text-[10px] text-[#484f58] px-1.5 py-0.5 rounded border border-[#21262d] font-mono select-none">⌘K</span>
+            {disabled ? (
+              <button
+                onClick={onInterrupt}
+                className="px-3.5 py-1.5 rounded-lg text-[12px] font-medium transition-colors bg-red-500/20 text-red-400 border border-red-500/40 hover:bg-red-500/30"
+              >
+                Stop
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={!value.trim()}
+                className="px-3.5 py-1.5 rounded-lg bg-primary text-white text-[12px] font-medium cursor-pointer disabled:opacity-40 hover:bg-primary/90 transition-colors"
+              >
+                Send
+              </button>
+            )}
+          </div>
         </div>
-        <p className="text-xs text-muted-foreground mt-1.5 ml-1">
-          Shift+Enter for newline · / for commands
-        </p>
       </div>
     </div>
   );
