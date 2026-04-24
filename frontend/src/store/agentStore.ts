@@ -31,6 +31,7 @@ export interface RecentMemory {
 
 export interface PoolSlot {
   slot_id: string;
+  provider_type: string;
   status: "starting" | "idle" | "busy" | "stopping" | "error";
   current_task_id: string | null;
   current_task_title: string | null;
@@ -104,6 +105,9 @@ interface AgentStore {
   systemMessages: SystemMessage[];
   injectSystemMessage: (msg: SystemMessage) => void;
 
+  selectedProvider: string;
+  setSelectedProvider: (p: string) => void;
+
   contextPanelVisible: boolean;
   toggleContextPanel: () => void;
   setContextPanelVisible: (v: boolean) => void;
@@ -145,6 +149,9 @@ export const useAgentStore = create<AgentStore>((set) => ({
   systemMessages: [],
   injectSystemMessage: (msg) =>
     set((state) => ({ systemMessages: [...state.systemMessages, msg] })),
+
+  selectedProvider: "claude",
+  setSelectedProvider: (p) => set({ selectedProvider: p }),
 
   contextPanelVisible: false,
   toggleContextPanel: () => set((state) => ({ contextPanelVisible: !state.contextPanelVisible })),

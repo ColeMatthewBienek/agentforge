@@ -84,6 +84,11 @@ function connect() {
 
     switch (data.type) {
       case "status":
+        if (data.provider) s.setSelectedProvider(data.provider as string);
+        break;
+
+      case "session_reset":
+        s.setSelectedProvider((data.provider as string) ?? "claude");
         break;
 
       case "chunk":
@@ -269,6 +274,11 @@ export function sendBuild(prompt: string, baseDir?: string) {
     base_dir: baseDir,
     task_id: `build-${Date.now()}`,
   }));
+}
+
+export function sendNewSession(provider: string) {
+  if (!_ws || _ws.readyState !== WebSocket.OPEN) return;
+  _ws.send(JSON.stringify({ type: "command", name: "new_session", provider }));
 }
 
 export function getSessionId(): string {

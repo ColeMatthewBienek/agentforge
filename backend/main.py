@@ -23,7 +23,7 @@ from backend.memory.lance_store import LanceStore
 from backend.memory.shadow_agent import ShadowAgent
 from backend.memory.memory_manager import MemoryManager
 from backend.memory.curator import MemoryCurator
-from backend.agents.claude_agent import ClaudeAgent
+from backend.agents.registry import make_agent
 from backend.api import inbox as inbox_module
 from backend.agents.ollama_agent import OllamaAgent
 from backend.pool.agent_pool import AgentPool, run_health_monitor
@@ -112,7 +112,7 @@ async def lifespan(app: FastAPI):
 
     # 7. Agent pool
     agent_pool = AgentPool(
-        agent_factory=lambda slot_id, workdir: ClaudeAgent(slot_id, workdir),
+        agent_factory=make_agent,
         workdir=SHARED_WORKSPACE,
         broadcaster=broadcaster,
         idle_timeout=AGENT_IDLE_TIMEOUT_SECONDS,

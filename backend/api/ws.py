@@ -8,6 +8,7 @@ from uuid import uuid4
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from backend.agents.claude_agent import ClaudeAgent
+from backend.agents.registry import make_agent
 from backend.api.broadcast import broadcaster
 from backend.config import SHARED_WORKSPACE
 
@@ -70,10 +71,22 @@ async def get_or_start_agent() -> ClaudeAgent:
             if _agent is not None:
                 await _agent.kill()
             _agent = ClaudeAgent(slot_id=0, workdir=SHARED_WORKSPACE)
+            _agent._provider_type = "claude"
             logger.info("Starting claude agent...")
             await _agent.start()
             logger.info("Claude agent ready.")
     return _agent
+
+
+async def _swap_global_agent(provider_type: str) -> None:
+    """Kill the current global agent and replace with one of the given provider type."""
+    global _agent
+    async with _agent_lock:
+        if _agent is not None:
+            await _agent.kill()
+        _agent = make_agent(provider_type, 0, SHARED_WORKSPACE)
+        _agent._provider_type = provider_type
+        await _agent.start()
 
 
 @router.websocket("/ws/stream/{session_id}")
@@ -96,7 +109,12 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
 
     try:
         agent = await get_or_start_agent()
-        await websocket.send_json({"type": "status", "agent": agent.name, "status": agent.status})
+        await websocket.send_json({
+            "type": "status",
+            "agent": agent.name,
+            "status": agent.status,
+            "provider": getattr(agent, "_provider_type", "claude"),
+        })
     except Exception as exc:
         logger.exception("Failed to start agent")
         await websocket.send_json({"type": "error", "message": f"Agent failed to start: {exc}"})
@@ -399,8 +417,24 @@ async def stream_endpoint(websocket: WebSocket, session_id: str) -> None:
                         asyncio.create_task(_run_task_reply())
 
                 elif name == "new_session":
-                    agent.reset_session()
-                    await websocket.send_json({"type": "session_reset"})
+                    provider = msg.get("provider", "claude").strip()
+                    current_provider = getattr(agent, "_provider_type", "claude")
+                    if provider != current_provider:
+                        try:
+                            await _swap_global_agent(provider)
+                            agent = _agent  # rebind local reference
+                        except Exception as exc:
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": f"Provider '{provider}' not available: {exc}",
+                            })
+                            provider = current_provider
+                    else:
+                        agent.reset_session()
+                    await websocket.send_json({
+                        "type": "session_reset",
+                        "provider": getattr(agent, "_provider_type", "claude"),
+                    })
 
                 elif name == "set_debug":
                     debug_mode = args.strip().lower() == "true"

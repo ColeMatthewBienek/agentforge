@@ -39,6 +39,11 @@ export function AgentStatusBar() {
             <span className={cn("text-[10px] px-1.5 rounded border", SLOT_BADGE[slot.status] ?? "border-status-active/30 text-status-active bg-status-active/5")}>
               {slot.status}
             </span>
+            {slot.provider_type && slot.provider_type !== "claude" && (
+              <span className="text-[9px] font-mono px-1 py-0.5 rounded border border-[#21262d] text-[#484f58]">
+                {slot.provider_type}
+              </span>
+            )}
             {slot.current_task_title && (
               <span className="text-[10px] text-[#484f58] max-w-[140px] truncate">
                 — {slot.current_task_title}

@@ -10,14 +10,13 @@ from backend.agents.base import CLIAgent
 
 logger = logging.getLogger(__name__)
 
-# Factory type — the pool never imports a specific agent class.
-# Pass lambda slot_id, workdir: ClaudeAgent(slot_id, workdir) for Claude,
-# or any other CLIAgent subclass for future agent types.
-AgentFactory = Callable[[int, Path], CLIAgent]
+# Factory type — accepts (provider_type, slot_id, workdir) and returns a CLIAgent.
+AgentFactory = Callable[[str, int, Path], CLIAgent]
 
 
 class SlotStatus(BaseModel):
     slot_id: str
+    provider_type: str = "claude"
     status: Literal["starting", "idle", "busy", "stopping", "error"]
     current_task_id: str | None = None
     current_task_title: str | None = None
@@ -26,9 +25,10 @@ class SlotStatus(BaseModel):
 
 
 class AgentSlot:
-    def __init__(self, slot_id: str, agent: CLIAgent) -> None:
+    def __init__(self, slot_id: str, agent: CLIAgent, provider_type: str = "claude") -> None:
         self.slot_id = slot_id
         self.agent = agent
+        self.provider_type = provider_type
         self.status: Literal["starting", "idle", "busy", "stopping", "error"] = "starting"
         self.current_task_id: str | None = None
         self.current_task_title: str | None = None
@@ -40,6 +40,7 @@ class AgentSlot:
         uptime = int((datetime.now(timezone.utc) - self.started_at).total_seconds())
         return SlotStatus(
             slot_id=self.slot_id,
+            provider_type=self.provider_type,
             status=self.status,
             current_task_id=self.current_task_id,
             current_task_title=self.current_task_title,
@@ -73,10 +74,12 @@ class AgentPool:
         self,
         task_id: str | None = None,
         task_title: str | None = None,
+        provider_type: str = "claude",
     ) -> AgentSlot:
         async with self._lock:
+            # Prefer an idle slot of the matching provider type
             for slot in self._slots.values():
-                if slot.status == "idle":
+                if slot.status == "idle" and slot.provider_type == provider_type:
                     slot.cancel_idle_timer()
                     slot.status = "busy"
                     slot.current_task_id = task_id
@@ -87,8 +90,8 @@ class AgentPool:
 
             idx = self._next_id
             self._next_id += 1
-            agent = self._factory(idx, self._workdir)
-            slot = AgentSlot(slot_id=agent.name, agent=agent)
+            agent = self._factory(provider_type, idx, self._workdir)
+            slot = AgentSlot(slot_id=agent.name, agent=agent, provider_type=provider_type)
             self._slots[slot.slot_id] = slot
 
         try:
