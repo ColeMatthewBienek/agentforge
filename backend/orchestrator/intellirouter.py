@@ -20,7 +20,7 @@ class RoutingDecision:
 
 
 TIER_MODELS = {
-    ExecutorTier.QWEN:   "qwen3-coder:30b",
+    ExecutorTier.QWEN:   "qwen3.6:27b",
     ExecutorTier.HAIKU:  "claude-haiku-4-5-20251001",
     ExecutorTier.SONNET: "claude-sonnet-4-6",
     ExecutorTier.OPUS:   "claude-opus-4-7",

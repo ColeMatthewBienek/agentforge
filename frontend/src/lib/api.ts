@@ -17,7 +17,10 @@ export const api = {
     return res.json() as Promise<T>;
   },
   async del(path: string): Promise<void> {
-    const res = await fetch(`${BASE_URL}${path}`, { method: "DELETE" });
+    const res = await fetch(`${BASE_URL}${path}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+    });
     if (!res.ok) throw new Error(`DELETE ${path} failed: ${res.status}`);
   },
   health: () => api.get<{ status: string }>("/api/health"),
@@ -43,10 +46,20 @@ export const api = {
       api.get<PlanSession & { tasks: PlanTask[] }>(`/api/tasks/sessions/${id}`),
   },
   projects: {
-    list: () => api.get<{ projects: Project[] }>("/api/projects"),
+    list: (includeArchived = false) =>
+      api.get<{ projects: Project[] }>(`/api/projects${includeArchived ? "?include_archived=true" : ""}`),
     get: (id: string) => api.get<ProjectDetail>(`/api/projects/${id}`),
     create: (name: string, description?: string) =>
       api.post<{ project_id: string; status: string }>("/api/projects", { name, description }),
+    edit: (id: string, fields: { name?: string; description?: string }) =>
+      fetch(`http://localhost:8765/api/projects/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fields),
+      }).then((r) => r.json()),
+    delete: (id: string) => api.del(`/api/projects/${id}`),
+    archive: (id: string) =>
+      api.post<{ status: string }>(`/api/projects/${id}/archive`),
     submitPlan: (id: string, body: { plan_document: string; workdir?: string; session_id?: string }) =>
       fetch(`http://localhost:8765/api/projects/${id}/submit-plan`, {
         method: "POST",
@@ -114,6 +127,7 @@ export interface Project {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  archived_at: string | null;
 }
 
 export interface ProjectRun {

@@ -92,6 +92,10 @@ CREATE TABLE IF NOT EXISTS task_injections (
 );
 """
 
+_PROJECT_MIGRATIONS = [
+    "ALTER TABLE projects ADD COLUMN archived_at TEXT",
+]
+
 _BUILD_TASKS_MIGRATIONS = [
     "ALTER TABLE build_tasks ADD COLUMN decomposer_error TEXT",
     "ALTER TABLE build_sessions ADD COLUMN decomposer_error TEXT",
@@ -108,7 +112,7 @@ async def open_db(path: Path) -> aiosqlite.Connection:
     db = await aiosqlite.connect(str(path))
     db.row_factory = aiosqlite.Row
     await db.executescript(SCHEMA_SQL)
-    for migration in _BUILD_TASKS_MIGRATIONS:
+    for migration in _PROJECT_MIGRATIONS + _BUILD_TASKS_MIGRATIONS:
         try:
             await db.execute(migration)
         except Exception:

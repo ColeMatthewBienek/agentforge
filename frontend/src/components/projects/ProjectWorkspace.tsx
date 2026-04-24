@@ -348,9 +348,15 @@ export function ProjectWorkspace({ projectId, onBack }: { projectId: string; onB
 
   useEffect(() => {
     load();
-    const interval = setInterval(load, 3000); // poll for live updates
-    return () => clearInterval(interval);
   }, [load]);
+
+  // Only poll while executing — stop when terminal state reached
+  useEffect(() => {
+    const LIVE_STATUSES = new Set(["executing", "decomposing", "em_review"]);
+    if (!project || !LIVE_STATUSES.has(project.status)) return;
+    const interval = setInterval(load, 3000);
+    return () => clearInterval(interval);
+  }, [project?.status, load]);
 
   if (!project) {
     return (

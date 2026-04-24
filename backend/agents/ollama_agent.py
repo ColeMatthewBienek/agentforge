@@ -15,7 +15,7 @@ class OllamaAgent:
     Not part of the agent pool — stateless, no PTY.
     """
 
-    def __init__(self, model: str = "qwen3-coder:30b") -> None:
+    def __init__(self, model: str = "qwen3.6:27b") -> None:
         self.model = model
         self._client = httpx.AsyncClient(base_url=OLLAMA_BASE, timeout=120.0)
 

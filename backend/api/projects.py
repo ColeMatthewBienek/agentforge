@@ -16,11 +16,16 @@ async def _fetchone(db, sql: str, params: tuple = ()):
 
 
 @router.get("")
-async def list_projects(request: Request):
+async def list_projects(request: Request, include_archived: bool = False):
     db = request.app.state.db
-    rows = await db.execute_fetchall(
-        "SELECT * FROM projects ORDER BY updated_at DESC LIMIT 50"
-    )
+    if include_archived:
+        rows = await db.execute_fetchall(
+            "SELECT * FROM projects ORDER BY updated_at DESC LIMIT 100"
+        )
+    else:
+        rows = await db.execute_fetchall(
+            "SELECT * FROM projects WHERE archived_at IS NULL ORDER BY updated_at DESC LIMIT 50"
+        )
     return {"projects": [dict(r) for r in rows]}
 
 
@@ -65,6 +70,135 @@ async def get_project(project_id: str, request: Request):
         p["tasks"] = []
 
     return p
+
+
+@router.patch("/{project_id}")
+async def edit_project(project_id: str, request: Request):
+    """Update project name and/or description."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    db = request.app.state.db
+    project = await _fetchone(db, "SELECT * FROM projects WHERE id = ?", (project_id,))
+    if not project:
+        raise HTTPException(404, "Project not found")
+    name = (body.get("name") or project["name"]).strip()
+    description = body.get("description", project["description"]) or ""
+    now = datetime.now(timezone.utc).isoformat()
+    await db.execute(
+        "UPDATE projects SET name = ?, description = ?, updated_at = ? WHERE id = ?",
+        (name, description, now, project_id),
+    )
+    await db.commit()
+    return {"status": "updated"}
+
+
+@router.delete("/{project_id}")
+async def delete_project(project_id: str, request: Request):
+    """Permanently delete a project and all its runs and tasks."""
+    db = request.app.state.db
+    project = await _fetchone(db, "SELECT * FROM projects WHERE id = ?", (project_id,))
+    if not project:
+        raise HTTPException(404, "Project not found")
+    # Delete in dependency order
+    runs = await db.execute_fetchall(
+        "SELECT id FROM project_runs WHERE project_id = ?", (project_id,)
+    )
+    for run in runs:
+        await db.execute("DELETE FROM build_tasks WHERE project_run_id = ?", (run["id"],))
+        await db.execute("DELETE FROM em_review_log WHERE project_run_id = ?", (run["id"],))
+        await db.execute("DELETE FROM task_injections WHERE project_run_id = ?", (run["id"],))
+    await db.execute("DELETE FROM project_runs WHERE project_id = ?", (project_id,))
+    await db.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+    await db.commit()
+    logger.info("Project %s deleted", project_id)
+    return {"status": "deleted"}
+
+
+@router.post("/{project_id}/archive")
+async def archive_project(project_id: str, request: Request):
+    """
+    Archive a project: mark it archived and embed key data into LanceDB
+    so it's searchable via /recall. Tasks outputs, plan doc, and outcomes
+    all surface in future context searches.
+    """
+    db = request.app.state.db
+    project = await _fetchone(db, "SELECT * FROM projects WHERE id = ?", (project_id,))
+    if not project:
+        raise HTTPException(404, "Project not found")
+    if project["archived_at"]:
+        raise HTTPException(400, "Project is already archived")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.execute(
+        "UPDATE projects SET archived_at = ?, updated_at = ? WHERE id = ?",
+        (now, now, project_id),
+    )
+    await db.commit()
+
+    # Embed key project data into LanceDB for long-term recall
+    memory_manager = getattr(request.app.state, "memory_manager", None)
+    if memory_manager:
+        archive_session_id = f"archive-{project_id}"
+        memory_manager.on_session_connect(archive_session_id)
+        try:
+            # 1. Plan document
+            if project["plan_document"]:
+                await memory_manager.on_message(
+                    role="assistant",
+                    content=f"[Archived project plan: {project['name']}]\n\n{project['plan_document']}",
+                    session_id=archive_session_id,
+                )
+
+            # 2. Task outcomes from all runs
+            runs = await db.execute_fetchall(
+                "SELECT id FROM project_runs WHERE project_id = ?", (project_id,)
+            )
+            for run in runs:
+                tasks = await db.execute_fetchall(
+                    "SELECT title, status, output, acceptance_criteria FROM build_tasks "
+                    "WHERE project_run_id = ? AND output != ''",
+                    (run["id"],),
+                )
+                if tasks:
+                    outcomes = "\n\n".join(
+                        f"**{t['title']}** ({t['status']})\n"
+                        + (f"Criteria: {t['acceptance_criteria']}\n" if t["acceptance_criteria"] else "")
+                        + (t["output"][:500] if t["output"] else "")
+                        for t in tasks
+                    )
+                    await memory_manager.on_message(
+                        role="assistant",
+                        content=f"[Archived project outcomes: {project['name']}]\n\n{outcomes}",
+                        session_id=archive_session_id,
+                    )
+
+            # 3. High-level summary pinned to memory
+            run_count = len(runs)
+            task_rows = await db.execute_fetchall(
+                "SELECT status FROM build_tasks WHERE project_id = ?", (project_id,)
+            )
+            done = sum(1 for t in task_rows if t["status"] == "complete")
+            total = len(task_rows)
+            summary = (
+                f"[Project archived: {project['name']}]\n"
+                f"Status at archive: {project['status']}\n"
+                f"Runs: {run_count} | Tasks: {done}/{total} complete\n"
+                f"Description: {project['description'] or 'none'}"
+            )
+            await memory_manager.on_message(
+                role="assistant",
+                content=summary,
+                session_id=archive_session_id,
+            )
+        except Exception as e:
+            logger.warning("Archive memory embed failed for project %s: %s", project_id, e)
+        finally:
+            memory_manager.cancel_session(archive_session_id)
+
+    logger.info("Project %s archived, data embedded into LanceDB", project_id)
+    return {"status": "archived"}
 
 
 @router.post("/{project_id}/submit-plan")

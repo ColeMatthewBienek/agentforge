@@ -20,6 +20,25 @@ export const TIER_COLORS: Record<string, string> = {
   opus:   "border-purple-500/40 text-purple-400",
 };
 
+function ThinkingIndicator() {
+  return (
+    <div className="flex justify-start">
+      <div className="bg-[#161b22] border border-[#30363d] rounded-lg px-3 py-2 text-sm text-muted-foreground flex items-center gap-1.5">
+        <span className="italic">thinking</span>
+        <span className="flex items-end gap-[3px] pb-[1px]">
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="w-[3px] h-[3px] rounded-full bg-muted-foreground/60 inline-block"
+              style={{ animation: `pmBounce 1.2s ease-in-out ${i * 0.2}s infinite` }}
+            />
+          ))}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function ProjectPlanningModal({ onClose }: Props) {
   const [name, setName] = useState("");
   const [nameConfirmed, setNameConfirmed] = useState(false);
@@ -34,7 +53,7 @@ export function ProjectPlanningModal({ onClose }: Props) {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, loading]);
 
   // Detect plan document in assistant messages
   useEffect(() => {
@@ -109,133 +128,137 @@ export function ProjectPlanningModal({ onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="w-full max-w-5xl h-[85vh] bg-[#0d1117] border border-[#30363d] rounded-xl flex flex-col overflow-hidden shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#30363d]">
-          <div>
-            <h2 className="text-sm font-semibold text-foreground">New Project</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {!nameConfirmed ? "Name your project" : `Planning: ${name}`}
-            </p>
-          </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors text-lg">×</button>
-        </div>
+    <>
+      {/* Keyframe injection — scoped to avoid polluting global styles */}
+      <style>{`
+        @keyframes pmBounce {
+          0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+          40%            { transform: translateY(-4px); opacity: 1; }
+        }
+      `}</style>
 
-        {!nameConfirmed ? (
-          // Name entry step
-          <div className="flex-1 flex items-center justify-center">
-            <div className="w-96 space-y-4">
-              <p className="text-sm text-muted-foreground text-center">What are you building?</p>
-              <input
-                autoFocus
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && void confirmName()}
-                placeholder="e.g. Auth System, API Gateway, Mobile App..."
-                className="w-full bg-[#161b22] border border-[#30363d] rounded-lg px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary transition-colors"
-              />
-              <button
-                onClick={() => void confirmName()}
-                disabled={!name.trim()}
-                className="w-full py-2.5 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                Start Planning →
-              </button>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+        <div className="w-full max-w-5xl h-[85vh] bg-[#0d1117] border border-[#30363d] rounded-xl flex flex-col overflow-hidden shadow-2xl">
+          {/* Header */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-[#30363d]">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">New Project</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {!nameConfirmed ? "Name your project" : `Planning: ${name}`}
+              </p>
             </div>
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors text-lg">×</button>
           </div>
-        ) : (
-          // Planning session
-          <div className="flex-1 flex overflow-hidden">
-            {/* Left: Chat */}
-            <div className="flex-1 flex flex-col border-r border-[#30363d]">
-              <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-                {messages.map((m, i) => (
-                  <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
-                    <div className={cn(
-                      "max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap",
-                      m.role === "user"
-                        ? "bg-accent/20 border border-accent/30 text-foreground"
-                        : "bg-[#161b22] border border-[#30363d] text-foreground"
-                    )}>
-                      {m.content}
-                    </div>
-                  </div>
-                ))}
-                {loading && (
-                  <div className="flex justify-start">
-                    <div className="bg-[#161b22] border border-[#30363d] rounded-lg px-3 py-2 text-sm text-muted-foreground italic">
-                      thinking…
-                    </div>
-                  </div>
-                )}
-                <div ref={bottomRef} />
+
+          {!nameConfirmed ? (
+            // Name entry step
+            <div className="flex-1 flex items-center justify-center">
+              <div className="w-96 space-y-4">
+                <p className="text-sm text-muted-foreground text-center">What are you building?</p>
+                <input
+                  autoFocus
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && void confirmName()}
+                  placeholder="e.g. Auth System, API Gateway, Mobile App..."
+                  className="w-full bg-[#161b22] border border-[#30363d] rounded-lg px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary transition-colors"
+                />
+                <button
+                  onClick={() => void confirmName()}
+                  disabled={!name.trim()}
+                  className="w-full py-2.5 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Start Planning →
+                </button>
               </div>
-              <div className="px-4 py-3 border-t border-[#30363d]">
-                <div className="flex gap-2 items-end bg-[#161b22] border border-[#30363d] rounded-lg px-3 py-2 focus-within:border-ring transition-colors">
-                  <textarea
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="Describe your project… (Enter to send)"
-                    rows={1}
-                    className="flex-1 bg-transparent text-sm text-foreground resize-none outline-none placeholder:text-muted-foreground min-h-[1.5rem] max-h-[120px]"
-                  />
+            </div>
+          ) : (
+            // Planning session
+            <div className="flex-1 flex overflow-hidden">
+              {/* Left: Chat */}
+              <div className="flex-1 flex flex-col border-r border-[#30363d]">
+                <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+                  {messages.map((m, i) => (
+                    <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
+                      <div className={cn(
+                        "max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap",
+                        m.role === "user"
+                          ? "bg-accent/20 border border-accent/30 text-foreground"
+                          : "bg-[#161b22] border border-[#30363d] text-foreground"
+                      )}>
+                        {m.content}
+                      </div>
+                    </div>
+                  ))}
+                  {loading && <ThinkingIndicator />}
+                  <div ref={bottomRef} />
+                </div>
+                <div className="px-4 py-3 border-t border-[#30363d]">
+                  <div className="flex gap-2 items-end bg-[#161b22] border border-[#30363d] rounded-lg px-3 py-2 focus-within:border-ring transition-colors">
+                    <textarea
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      placeholder="Describe your project… (Enter to send)"
+                      rows={1}
+                      className="flex-1 bg-transparent text-sm text-foreground resize-none outline-none placeholder:text-muted-foreground min-h-[1.5rem] max-h-[120px]"
+                    />
+                    <button
+                      onClick={() => void sendMessage()}
+                      disabled={!input.trim() || loading}
+                      className="shrink-0 px-3 py-1 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Send
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right: Plan preview */}
+              <div className="w-80 flex flex-col">
+                <div className="px-4 py-3 border-b border-[#30363d] flex items-center justify-between">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Plan Document</span>
+                  {planDocument && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded border border-green-500/40 text-green-400">detected</span>
+                  )}
+                </div>
+                <div className="flex-1 overflow-y-auto px-4 py-3">
+                  {planDocument ? (
+                    <pre className="text-xs text-foreground/80 whitespace-pre-wrap leading-relaxed font-mono">
+                      {planDocument}
+                    </pre>
+                  ) : (
+                    <p className="text-xs text-muted-foreground italic">
+                      The plan document will appear here once Claude outputs it.
+                      Tell Claude "the plan is ready" when you're satisfied.
+                    </p>
+                  )}
+                </div>
+                <div className="px-4 py-3 border-t border-[#30363d]">
                   <button
-                    onClick={() => void sendMessage()}
-                    disabled={!input.trim() || loading}
-                    className="shrink-0 px-3 py-1 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    onClick={() => void submitPlan()}
+                    disabled={!planDocument || submitting}
+                    className={cn(
+                      "w-full py-2.5 text-sm rounded-lg transition-colors",
+                      planDocument
+                        ? "bg-green-600 hover:bg-green-500 text-white"
+                        : "bg-[#161b22] border border-[#30363d] text-muted-foreground cursor-not-allowed"
+                    )}
                   >
-                    Send
+                    {submitting ? "Submitting…" : planDocument ? "Submit Plan →" : "Waiting for plan…"}
                   </button>
+                  {!planDocument && (
+                    <p className="text-[10px] text-muted-foreground text-center mt-1.5">
+                      Plan auto-detects when Claude outputs ## Project:
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
-
-            {/* Right: Plan preview */}
-            <div className="w-80 flex flex-col">
-              <div className="px-4 py-3 border-b border-[#30363d] flex items-center justify-between">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Plan Document</span>
-                {planDocument && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded border border-green-500/40 text-green-400">detected</span>
-                )}
-              </div>
-              <div className="flex-1 overflow-y-auto px-4 py-3">
-                {planDocument ? (
-                  <pre className="text-xs text-foreground/80 whitespace-pre-wrap leading-relaxed font-mono">
-                    {planDocument}
-                  </pre>
-                ) : (
-                  <p className="text-xs text-muted-foreground italic">
-                    The plan document will appear here once Claude outputs it.
-                    Tell Claude "the plan is ready" when you're satisfied.
-                  </p>
-                )}
-              </div>
-              <div className="px-4 py-3 border-t border-[#30363d]">
-                <button
-                  onClick={() => void submitPlan()}
-                  disabled={!planDocument || submitting}
-                  className={cn(
-                    "w-full py-2.5 text-sm rounded-lg transition-colors",
-                    planDocument
-                      ? "bg-green-600 hover:bg-green-500 text-white"
-                      : "bg-[#161b22] border border-[#30363d] text-muted-foreground cursor-not-allowed"
-                  )}
-                >
-                  {submitting ? "Submitting…" : planDocument ? "Submit Plan →" : "Waiting for plan…"}
-                </button>
-                {!planDocument && (
-                  <p className="text-[10px] text-muted-foreground text-center mt-1.5">
-                    Plan auto-detects when Claude outputs ## Project:
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

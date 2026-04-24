@@ -123,11 +123,11 @@ async def lifespan(app: FastAPI):
     ws._task_graph_executor = task_graph_executor
 
     # 9. OllamaAgent (project decomposition with Qwen)
-    ollama_agent = OllamaAgent(model="qwen3-coder:30b")
+    ollama_agent = OllamaAgent(model="qwen3.6:27b")
     if not await ollama_agent.health_check():
         logger.warning(
-            "OllamaAgent: qwen3-coder:30b not available — project decomposition disabled. "
-            "Run: ollama pull qwen3-coder:30b"
+            "OllamaAgent: qwen3.6:27b not available — project decomposition disabled. "
+            "Run: ollama pull qwen3.6:27b"
         )
     app.state.ollama_agent = ollama_agent
     decomposer._ollama = ollama_agent  # inject into decomposer for project decomposition
