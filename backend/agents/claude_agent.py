@@ -160,6 +160,10 @@ class ClaudeAgent(CLIAgent):
                                 # contains the completion notice the user needs to see.
                                 await self._response_queue.put("\n\n")
                                 await self._typewriter(result)
+                        elif tool_used and not response_sent:
+                            # Tools ran but Claude produced no text summary.
+                            # Emit a minimal signal so ws.py doesn't fire "empty response".
+                            await self._response_queue.put("Done.")
         except Exception as e:
             if not response_sent:
                 await self._response_queue.put(f"[Error] {e}")

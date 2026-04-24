@@ -65,10 +65,18 @@ class Decomposer:
             except Exception as e:
                 logger.warning("Decomposer context injection failed: %s", e)
 
-        slot = await self._pool.acquire(task_id=plan_session_id, task_title="decomposing...")
+        if self._ollama is None:
+            return self._fallback(direction), "OllamaAgent not configured — inject via main.py"
+
         try:
+            if not await self._ollama.health_check():
+                raise RuntimeError(
+                    f"Ollama not running or model '{self._ollama.model}' not pulled. "
+                    f"Run: ollama pull {self._ollama.model}"
+                )
+
             prompt = self._build_prompt(enriched_direction, workdir)
-            raw_output = await slot.agent.run_oneshot(prompt, timeout=90)
+            raw_output = await self._ollama.run_oneshot(prompt, timeout=90)
             tasks, parse_error = self._parse(raw_output, direction)
 
             if parse_error:
@@ -106,7 +114,7 @@ class Decomposer:
 
         except asyncio.TimeoutError:
             decomposer_error = (
-                f"Decomposer timed out after 90s — Claude did not respond.\n"
+                f"Decomposer timed out after 90s — Ollama/{self._ollama.model} did not respond.\n"
                 f"Direction: {direction[:200]}\nFalling back to single-task execution."
             )
             logger.error("Decomposer timeout for '%s'", direction[:80])
@@ -131,9 +139,6 @@ class Decomposer:
             )
             logger.error("Decomposer exception for '%s':\n%s", direction[:80], tb)
             return self._fallback(direction), decomposer_error
-
-        finally:
-            await self._pool.release(slot)
 
     def _build_prompt(self, direction: str, workdir: str) -> str:
         return f"""You are a software task decomposer for an AI agent system.
@@ -168,23 +173,23 @@ Direction to decompose:
     def _parse(self, raw_output: str, direction: str) -> tuple[list[TaskSpec], str | None]:
         clean = raw_output.strip()
         if not clean:
-            return self._fallback(direction), "Claude returned an empty response"
+            return self._fallback(direction), "Decomposer returned an empty response"
 
-        # Extract JSON from wherever it appears — Claude sometimes adds preamble text
+        # Extract JSON from wherever it appears — model sometimes adds preamble text
         # before the code fence. Try strategies in order of specificity.
         candidate = self._extract_json(clean)
         if candidate is None:
-            return self._fallback(direction), f"No JSON array found in Claude output (first 200 chars): {clean[:200]!r}"
+            return self._fallback(direction), f"No JSON array found in output (first 200 chars): {clean[:200]!r}"
 
         try:
             parsed = json.loads(candidate)
         except json.JSONDecodeError as e:
-            return self._fallback(direction), f"Invalid JSON from Claude: {e}"
+            return self._fallback(direction), f"Invalid JSON from decomposer: {e}"
 
         if not isinstance(parsed, list):
             return self._fallback(direction), f"Expected JSON array, got {type(parsed).__name__}"
         if len(parsed) == 0:
-            return self._fallback(direction), "Claude returned an empty task list"
+            return self._fallback(direction), "Decomposer returned an empty task list"
 
         tasks = []
         for i, item in enumerate(parsed[:8]):
